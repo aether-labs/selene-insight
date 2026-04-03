@@ -37,9 +37,12 @@ async def run_all() -> None:
 
         # Feed validator: grab latest issinfo readings from Lethe
         recent = store.latest(20)
+        issinfo_count = 0
         for p in recent:
             if p.get("source", "issinfo") != "jpl_horizons":
                 validator.update_issinfo(p)
+                issinfo_count += 1
+        print(f"  [VALIDATE] Fed {issinfo_count} issinfo points from {len(recent)} total (store={store.size})")
 
         # Cross-validate
         result = validator.validate(point)
