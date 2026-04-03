@@ -29,24 +29,19 @@ async def run_all() -> None:
     import services.telemetry.telemetry_worker as tw
     tw.store = store
 
-    # Wrap store.put to feed issinfo data into validator
-    original_put = store.put
-
-    def hooked_put(key: str, value, timestamp=None):
-        original_put(key, value, timestamp=timestamp)
-        # Feed issinfo telemetry into cross-validator buffer
-        if isinstance(value, dict) and key.startswith("telem:") and "jpl" not in key:
-            validator.update_issinfo(value)
-
-    store.put = hooked_put
-
     # Horizons worker
     from services.telemetry.horizons_worker import run_horizons_worker
 
     def on_horizons_telemetry(point: dict) -> None:
         ingest_telemetry(point)
 
-        # Cross-validate against buffered issinfo data
+        # Feed validator: grab latest issinfo readings from Lethe
+        recent = store.latest(20)
+        for p in recent:
+            if p.get("source", "issinfo") != "jpl_horizons":
+                validator.update_issinfo(p)
+
+        # Cross-validate
         result = validator.validate(point)
         if result:
             grade = result.grade
@@ -78,6 +73,8 @@ async def run_all() -> None:
                 }
                 ingest_alert(alert)
                 asyncio.create_task(broadcast_alert(alert))
+        else:
+            print("  [?VALIDATE] No issinfo data available for cross-validation")
 
     tasks = [
         asyncio.create_task(server.serve()),
