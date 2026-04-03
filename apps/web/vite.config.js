@@ -1,9 +1,13 @@
 import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
 import cesium from "vite-plugin-cesium";
 
 export default defineConfig({
-  plugins: [react(), cesium()],
+  plugins: [cesium()],
+  css: {
+    lightningcss: {
+      errorRecovery: true,
+    },
+  },
   server: {
     port: 5173,
     proxy: {
@@ -13,5 +17,8 @@ export default defineConfig({
         ws: true,
       },
     },
+  },
+  build: {
+    chunkSizeWarningLimit: 4000,
   },
 });
