@@ -2,7 +2,7 @@
  * Open MCT Telemetry Plugin — connects to the Selene-Insight API.
  *
  * Provides:
- * - Domain object tree (Artemis II → telemetry points)
+ * - Domain object tree (Artemis II → telemetry points + 3D view)
  * - Historical telemetry provider (REST)
  * - Real-time telemetry provider (WebSocket)
  */
@@ -34,34 +34,40 @@ const TELEMETRY_KEYS = [
   },
 ];
 
+const ALL_CHILDREN = [
+  ...TELEMETRY_KEYS.map((t) => ({ namespace: NAMESPACE, key: t.key })),
+  { namespace: NAMESPACE, key: "cesium-3d" },
+];
+
 export function TelemetryPlugin() {
   return function install(openmct) {
-    // --- Root object ---
-    const rootObj = {
-      identifier: { namespace: NAMESPACE, key: ROOT_KEY },
-      name: "Artemis II",
-      type: "folder",
-      location: "ROOT",
-    };
+    // --- Root ---
+    openmct.objects.addRoot({ namespace: NAMESPACE, key: ROOT_KEY });
 
-    openmct.objects.addRoot({
-      namespace: NAMESPACE,
-      key: ROOT_KEY,
-    });
-
-    // --- Object provider ---
+    // --- Single object provider for the entire namespace ---
     openmct.objects.addProvider(NAMESPACE, {
       get(identifier) {
         if (identifier.key === ROOT_KEY) {
           return Promise.resolve({
-            ...rootObj,
-            composition: TELEMETRY_KEYS.map((t) => ({
-              namespace: NAMESPACE,
-              key: t.key,
-            })),
+            identifier,
+            name: "Artemis II",
+            type: "folder",
+            location: "ROOT",
+            composition: ALL_CHILDREN,
           });
         }
 
+        // 3D view object
+        if (identifier.key === "cesium-3d") {
+          return Promise.resolve({
+            identifier,
+            name: "3D Trajectory View",
+            type: "selene.cesium-view",
+            location: `${NAMESPACE}:${ROOT_KEY}`,
+          });
+        }
+
+        // Telemetry objects
         const meta = TELEMETRY_KEYS.find((t) => t.key === identifier.key);
         if (meta) {
           return Promise.resolve({
@@ -91,7 +97,7 @@ export function TelemetryPlugin() {
           });
         }
 
-        return Promise.reject();
+        return Promise.reject(new Error(`Unknown object: ${identifier.key}`));
       },
     });
 
@@ -104,16 +110,11 @@ export function TelemetryPlugin() {
         );
       },
       load() {
-        return Promise.resolve(
-          TELEMETRY_KEYS.map((t) => ({
-            namespace: NAMESPACE,
-            key: t.key,
-          }))
-        );
+        return Promise.resolve(ALL_CHILDREN);
       },
     });
 
-    // --- Type ---
+    // --- Types ---
     openmct.types.addType("selene.telemetry", {
       name: "Selene Telemetry",
       description: "Artemis II telemetry data point",
@@ -134,19 +135,19 @@ export function TelemetryPlugin() {
           .then((d) =>
             (d.data || []).map((pt) => ({
               ...pt,
-              timestamp: pt.timestamp * 1000, // Open MCT expects ms
+              timestamp: pt.timestamp * 1000,
             }))
-          );
+          )
+          .catch(() => []);
       },
     });
 
-    // --- Real-time telemetry provider (WebSocket) ---
+    // --- Real-time telemetry provider ---
     openmct.telemetry.addProvider({
       supportsSubscribe(domainObject) {
         return domainObject.type === "selene.telemetry";
       },
       subscribe(domainObject, callback) {
-        const key = domainObject.identifier.key;
         const protocol =
           window.location.protocol === "https:" ? "wss:" : "ws:";
         const ws = new WebSocket(

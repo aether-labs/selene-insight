@@ -17,8 +17,6 @@ import {
   Cartesian2,
   SceneMode,
 } from "cesium";
-import "cesium/Build/Cesium/Widgets/widgets.css";
-
 import { telemetryToPosition, moonToPosition } from "../lib/orbit.js";
 import {
   generateReferenceTrajectory,
@@ -278,21 +276,7 @@ export function CesiumViewPlugin() {
       },
     });
 
-    // --- Create a default instance in the root ---
-    const cesiumObj = {
-      identifier: { namespace: "selene", key: "cesium-3d" },
-      name: "3D Trajectory View",
-      type: "selene.cesium-view",
-      location: "selene:artemis-ii",
-    };
-
-    openmct.objects.addProvider("selene", {
-      get(identifier) {
-        if (identifier.key === "cesium-3d") {
-          return Promise.resolve(cesiumObj);
-        }
-        return undefined;
-      },
-    });
+    // Note: the "cesium-3d" domain object is provided by TelemetryPlugin's
+    // object provider (single provider per namespace).
   };
 }

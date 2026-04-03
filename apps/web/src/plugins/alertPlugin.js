@@ -1,13 +1,9 @@
 /**
  * Open MCT Alert Plugin — Skeptic Agent alerts as notifications.
- *
- * Shows physics verification alerts in the Open MCT notification area
- * and provides a list view of recent alerts.
  */
 
 export function AlertPlugin() {
   return function install(openmct) {
-    // Connect WebSocket for alerts
     let ws;
 
     function connect() {
@@ -34,33 +30,20 @@ export function AlertPlugin() {
     }
 
     function showAlert(alert) {
-      const typeMap = {
-        orbital_maneuver: "caution",
-        sensor_anomaly: "alert",
-        coast_nominal: "info",
-      };
+      const msg = `[${(alert.alert_type || "UNKNOWN").toUpperCase()}] ${alert.details || "Physics anomaly detected"}`;
 
-      openmct.notifications.notify({
-        message: `[${alert.alert_type?.toUpperCase()}] ${alert.details || "Physics anomaly detected"}`,
-        severity: typeMap[alert.alert_type] || "info",
-        autoDismiss: true,
-        autoDismissTimeout: 15000,
-      });
+      // Open MCT notification API varies by version
+      if (openmct.notifications && openmct.notifications.alert) {
+        openmct.notifications.alert(msg);
+      } else if (openmct.notifications && openmct.notifications.notify) {
+        openmct.notifications.notify({ message: msg, severity: "alert" });
+      } else {
+        console.warn("[SKEPTIC]", msg);
+      }
     }
 
-    // Start on app ready
     openmct.on("start", () => {
       connect();
-
-      // Load existing alerts
-      fetch("/api/alerts/latest?n=10")
-        .then((r) => r.json())
-        .then((d) => {
-          if (d.data) {
-            d.data.slice(0, 3).forEach(showAlert);
-          }
-        })
-        .catch(() => {});
     });
   };
 }
