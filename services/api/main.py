@@ -18,6 +18,7 @@ from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from services.telemetry.lethe import Lethe
+from services.brain.cross_validator import CrossValidator
 
 # ---------------------------------------------------------------------------
 # Shared state
@@ -25,6 +26,7 @@ from services.telemetry.lethe import Lethe
 
 store = Lethe(max_entries=500_000)
 alert_store = Lethe(max_entries=10_000)
+validator = CrossValidator()
 
 # Connected WebSocket clients
 _ws_clients: set[WebSocket] = set()
@@ -85,14 +87,27 @@ async def alerts_latest(n: int = Query(default=20, ge=1, le=500)):
     return {"data": alert_store.latest(n), "count": alert_store.size}
 
 
+@app.get("/api/validation/latest")
+async def validation_latest():
+    """Latest cross-validation results and confidence score."""
+    return {
+        "stats": validator.stats,
+        "recent": validator.recent_results,
+    }
+
+
 @app.get("/api/status")
 async def status():
     """Health check with store stats."""
+    v = validator.stats
     return {
         "status": "ok",
         "telemetry_entries": store.size,
         "alert_entries": alert_store.size,
         "ws_clients": len(_ws_clients),
+        "data_confidence": v.get("latest_confidence"),
+        "data_grade": v.get("latest_grade"),
+        "validations": v.get("total_validations"),
     }
 
 
