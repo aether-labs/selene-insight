@@ -1,0 +1,50 @@
+"""Combined runner — starts FastAPI server + telemetry worker in one process.
+
+Usage:
+    python -m services.api.runner
+"""
+
+from __future__ import annotations
+
+import asyncio
+import signal
+import sys
+import uvicorn
+
+from services.api.main import app, store, alert_store
+
+
+async def run_all() -> None:
+    """Run API server and telemetry worker concurrently."""
+    # Start uvicorn as an async server
+    config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
+    server = uvicorn.Server(config)
+
+    # Start telemetry worker
+    from services.telemetry.telemetry_worker import run_worker
+
+    # Monkey-patch the worker to use the API's shared stores
+    import services.telemetry.telemetry_worker as tw
+    tw.store = store
+
+    tasks = [
+        asyncio.create_task(server.serve()),
+        asyncio.create_task(run_worker(with_skeptic=True, api_mode=True)),
+    ]
+
+    await asyncio.gather(*tasks)
+
+
+def main() -> None:
+    def _shutdown(sig: int, frame: object) -> None:
+        print(f"\n[STOP] Signal {sig}. Entries: {store.size}, Alerts: {alert_store.size}")
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+
+    asyncio.run(run_all())
+
+
+if __name__ == "__main__":
+    main()
