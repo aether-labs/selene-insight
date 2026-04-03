@@ -7,6 +7,10 @@ import {
 } from "resium";
 import { Cartesian3, Color } from "cesium";
 import { telemetryToPosition, moonToPosition } from "../lib/orbit.js";
+import {
+  generateReferenceTrajectory,
+  estimateLaunchTime,
+} from "../lib/referenceTrajectory.js";
 
 function trajectoryPositions(telemetry) {
   return telemetry
@@ -27,6 +31,13 @@ export default function CesiumView({ telemetry, latest }) {
     return moonToPosition(ts, Cartesian3);
   }, [latest]);
 
+  // Reference trajectory (full mission arc)
+  const refTrajectory = useMemo(() => {
+    const launchTime = estimateLaunchTime(latest);
+    if (!launchTime) return [];
+    return generateReferenceTrajectory(launchTime, Cartesian3);
+  }, [latest?.met]);
+
   return (
     <Viewer
       full
@@ -39,9 +50,20 @@ export default function CesiumView({ telemetry, latest }) {
       navigationHelpButton={false}
       style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
     >
-      {/* Orion trajectory path */}
+      {/* Reference trajectory (predicted full orbit) */}
+      {refTrajectory.length > 1 && (
+        <Entity name="Predicted Trajectory">
+          <PolylineGraphics
+            positions={refTrajectory}
+            width={1}
+            material={Color.fromCssColorString("#ffffff").withAlpha(0.15)}
+          />
+        </Entity>
+      )}
+
+      {/* Actual telemetry path */}
       {positions.length > 1 && (
-        <Entity>
+        <Entity name="Actual Path">
           <PolylineGraphics
             positions={positions}
             width={2}
