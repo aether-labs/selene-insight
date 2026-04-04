@@ -92,6 +92,22 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
   border: 1px solid rgba(255, 68, 68, 0.3);
 }
 
+/* ── Mini bar charts ── */
+.bar-container {
+  height: 4px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 2px;
+  margin: 2px 0 4px;
+  overflow: hidden;
+}
+.bar {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+.bar-vel { background: linear-gradient(90deg, #00ccff, #00ff88); width: 0%; }
+.bar-dist { background: linear-gradient(90deg, #4488ff, #aa44ff); width: 0%; }
+
 /* ── Telemetry panel: top left ── */
 #telemetry-panel { top: 56px; left: 16px; }
 
