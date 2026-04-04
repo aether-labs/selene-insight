@@ -89,29 +89,75 @@ async def alerts_latest(n: int = Query(default=20, ge=1, le=500)):
 
 @app.get("/api/telemetry/history")
 async def telemetry_history():
-    """Full mission trajectory from JPL Horizons (launch to now, 30-min steps)."""
-    import math
-    from datetime import datetime, timezone, timedelta
+    """Full mission trajectory from JPL Horizons (launch to end, 30-min steps).
+
+    Returns both Orion and Moon positions for the entire mission,
+    including predicted future trajectory.
+    """
     from services.telemetry.horizons_worker import (
         fetch_horizons_vectors, fetch_moon_position, vectors_to_telemetry,
+        _parse_vectors, _get_ssl_context, HORIZONS_API,
     )
+    import urllib.request
+    import urllib.parse
+    import json as _json
 
-    # Artemis II launch: 2026-04-02 01:58 UTC (from Horizons ephemeris start)
     launch = "2026-04-02 02:00"
-    now = datetime.now(timezone.utc)
-    stop = now.strftime("%Y-%m-%d %H:%M")
+    mission_end = "2026-04-10 23:50"  # Horizons has data until here
 
     try:
-        moon_pos = await fetch_moon_position(stop)
-        vectors = await fetch_horizons_vectors(launch, stop, "30 min")
-        data = []
-        for v in vectors:
-            t = vectors_to_telemetry(v, moon_pos)
-            t["pos_km"] = [v["x_km"], v["y_km"], v["z_km"]]
-            data.append(t)
-        return {"data": data, "count": len(data), "source": "jpl_horizons"}
+        # Fetch Orion trajectory (full mission)
+        orion_vecs = await fetch_horizons_vectors(launch, mission_end, "30 min")
+
+        # Fetch Moon trajectory (same period)
+        ctx = _get_ssl_context()
+        params = urllib.parse.urlencode({
+            "format": "json",
+            "COMMAND": "'301'",
+            "OBJ_DATA": "'NO'",
+            "MAKE_EPHEM": "'YES'",
+            "EPHEM_TYPE": "'VECTORS'",
+            "CENTER": "'500@399'",
+            "START_TIME": f"'{launch}'",
+            "STOP_TIME": f"'{mission_end}'",
+            "STEP_SIZE": "'30 min'",
+            "VEC_TABLE": "'2'",
+        })
+        url = f"{HORIZONS_API}?{params}"
+        import asyncio
+        loop = asyncio.get_event_loop()
+        resp = await loop.run_in_executor(
+            None, lambda: urllib.request.urlopen(url, timeout=30, context=ctx).read()
+        )
+        moon_data = _json.loads(resp)
+        moon_vecs = _parse_vectors(moon_data.get("result", ""))
+
+        # Build response
+        orion_data = []
+        for v in orion_vecs:
+            orion_data.append({
+                "timestamp": v["timestamp"],
+                "pos_km": [v["x_km"], v["y_km"], v["z_km"]],
+                "vel_kms": [v["vx_kms"], v["vy_kms"], v["vz_kms"]],
+            })
+
+        moon_data_out = []
+        for v in moon_vecs:
+            moon_data_out.append({
+                "timestamp": v["timestamp"],
+                "pos_km": [v["x_km"], v["y_km"], v["z_km"]],
+            })
+
+        return {
+            "orion": orion_data,
+            "moon": moon_data_out,
+            "count": len(orion_data),
+            "source": "jpl_horizons",
+            "mission_start": launch,
+            "mission_end": mission_end,
+        }
     except Exception as e:
-        return {"data": [], "count": 0, "error": str(e)}
+        return {"orion": [], "moon": [], "count": 0, "error": str(e)}
 
 
 @app.get("/api/validation/latest")

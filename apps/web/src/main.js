@@ -1,5 +1,8 @@
 /**
  * Selene-Insight — Full-screen CesiumJS dashboard with time animation.
+ *
+ * Orion and Moon both animate along JPL Horizons trajectories.
+ * Timeline covers full mission (launch → lunar flyby → return).
  */
 
 import {
@@ -11,20 +14,18 @@ import {
   LabelStyle,
   VerticalOrigin,
   NearFarScalar,
-  PolylineDashMaterialProperty,
   SceneMode,
   JulianDate,
   ClockRange,
   ClockStep,
   SampledPositionProperty,
   LagrangePolynomialApproximation,
-  TimeIntervalCollection,
-  TimeInterval,
   PathGraphics,
+  PolylineDashMaterialProperty,
 } from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 
-import { moonToPosition, eciToCartesian3 } from "./lib/orbit.js";
+import { eciToCartesian3 } from "./lib/orbit.js";
 import { generateMoonOrbit } from "./lib/referenceTrajectory.js";
 
 // ── Config ──
@@ -37,10 +38,10 @@ const LABEL_FONT = "bold 22px monospace";
 // ── State ──
 let alertBuffer = [];
 
-// ── CesiumJS viewer ──
+// ── Viewer ──
 const viewer = new Viewer("cesium-container", {
-  timeline: true,       // enable for animation scrubbing
-  animation: true,      // play/pause/speed controls
+  timeline: true,
+  animation: true,
   homeButton: false,
   geocoder: false,
   sceneModePicker: false,
@@ -55,53 +56,28 @@ const viewer = new Viewer("cesium-container", {
 });
 viewer.scene.backgroundColor = Color.BLACK;
 
-// Camera
 viewer.camera.setView({
   destination: Cartesian3.fromDegrees(20, 30, 800_000_000),
 });
 
-// ── Static Entities ──
-
+// ── Moon orbit ring (background) ──
 const nowTs = Date.now() / 1000;
-
-// Moon orbit ring
 viewer.entities.add({
   name: "Moon Orbit",
   polyline: {
     positions: generateMoonOrbit(nowTs, Cartesian3),
     width: 1,
-    material: Color.fromCssColorString("#444444").withAlpha(0.35),
+    material: Color.fromCssColorString("#444444").withAlpha(0.3),
   },
 });
 
-// Moon
-const moonEntity = viewer.entities.add({
-  name: "Moon",
-  position: moonToPosition(nowTs, Cartesian3),
-  ellipsoid: {
-    radii: new Cartesian3(MOON_RADIUS_M, MOON_RADIUS_M, MOON_RADIUS_M),
-    material: Color.fromCssColorString("#cccccc").withAlpha(0.9),
-  },
-  label: {
-    text: "MOON",
-    font: LABEL_FONT,
-    fillColor: Color.fromCssColorString("#cccccc"),
-    style: LabelStyle.FILL_AND_OUTLINE,
-    outlineColor: Color.BLACK,
-    outlineWidth: 4,
-    verticalOrigin: VerticalOrigin.BOTTOM,
-    pixelOffset: new Cartesian2(0, -28),
-    scaleByDistance: new NearFarScalar(5e5, 1.6, 1e9, 0.6),
-  },
-});
-
-// Earth — slight exaggeration (1.5x) for visibility
-const EARTH_VIS_RADIUS = 6371000 * 1.5;
+// ── Earth (1.5x exaggerated) ──
+const EARTH_VIS_R = 6371000 * 1.5;
 viewer.entities.add({
   name: "Earth",
   position: Cartesian3.fromDegrees(0, 0, 0),
   ellipsoid: {
-    radii: new Cartesian3(EARTH_VIS_RADIUS, EARTH_VIS_RADIUS, EARTH_VIS_RADIUS),
+    radii: new Cartesian3(EARTH_VIS_R, EARTH_VIS_R, EARTH_VIS_R),
     material: Color.fromCssColorString("#2244aa").withAlpha(0.8),
   },
   label: {
@@ -117,7 +93,7 @@ viewer.entities.add({
   },
 });
 
-// Orion entity — position set by SampledPositionProperty after history loads
+// ── Orion (animated) ──
 const orionPosition = new SampledPositionProperty();
 orionPosition.setInterpolationOptions({
   interpolationDegree: 3,
@@ -139,13 +115,54 @@ const orionEntity = viewer.entities.add({
     pixelOffset: new Cartesian2(0, -28),
     scaleByDistance: new NearFarScalar(5e5, 1.6, 1e9, 0.6),
   },
-  // Trail: shows path Orion has already flown
   path: new PathGraphics({
-    leadTime: 0,             // no future path (only past)
-    trailTime: 86400 * 10,   // show up to 10 days of trail
-    width: 4,
-    material: Color.fromCssColorString("#00ccff").withAlpha(0.85),
+    leadTime: 0,
+    trailTime: 86400 * 12,
+    width: 3,
+    material: Color.fromCssColorString("#00ccff").withAlpha(0.8),
   }),
+});
+
+// ── Orion predicted path (future, dashed) ──
+const orionFuturePath = viewer.entities.add({
+  name: "Orion Predicted",
+  position: orionPosition,
+  path: new PathGraphics({
+    leadTime: 86400 * 12,
+    trailTime: 0,
+    width: 2,
+    material: new PolylineDashMaterialProperty({
+      color: Color.fromCssColorString("#00ccff").withAlpha(0.3),
+      dashLength: 16,
+    }),
+  }),
+});
+
+// ── Moon (animated) ──
+const moonPosition = new SampledPositionProperty();
+moonPosition.setInterpolationOptions({
+  interpolationDegree: 3,
+  interpolationAlgorithm: LagrangePolynomialApproximation,
+});
+
+const moonEntity = viewer.entities.add({
+  name: "Moon",
+  position: moonPosition,
+  ellipsoid: {
+    radii: new Cartesian3(MOON_RADIUS_M, MOON_RADIUS_M, MOON_RADIUS_M),
+    material: Color.fromCssColorString("#cccccc").withAlpha(0.9),
+  },
+  label: {
+    text: "MOON",
+    font: LABEL_FONT,
+    fillColor: Color.fromCssColorString("#cccccc"),
+    style: LabelStyle.FILL_AND_OUTLINE,
+    outlineColor: Color.BLACK,
+    outlineWidth: 4,
+    verticalOrigin: VerticalOrigin.BOTTOM,
+    pixelOffset: new Cartesian2(0, -28),
+    scaleByDistance: new NearFarScalar(5e5, 1.6, 1e9, 0.6),
+  },
 });
 
 // ── DOM refs ──
@@ -167,55 +184,92 @@ const dom = {
   connStatus: document.getElementById("connection-status"),
 };
 
-// ── Load Horizons history and set up time animation ──
+// ── Load full mission from Horizons ──
 
 fetch("/api/telemetry/history")
   .then((r) => r.json())
   .then((d) => {
-    if (!d.data || !d.data.length) return;
+    if (!d.orion || !d.orion.length) return;
 
-    const points = d.data.filter((p) => p.pos_km);
-    if (points.length < 2) return;
-
-    // Add samples to Orion's position property
-    for (const p of points) {
+    // Load Orion trajectory
+    for (const p of d.orion) {
       const jd = JulianDate.fromDate(new Date(p.timestamp * 1000));
-      const pos = eciToCartesian3(p.pos_km, Cartesian3);
-      orionPosition.addSample(jd, pos);
+      orionPosition.addSample(jd, eciToCartesian3(p.pos_km, Cartesian3));
     }
 
-    // Set clock to mission time range
-    const startJd = JulianDate.fromDate(new Date(points[0].timestamp * 1000));
-    const stopJd = JulianDate.fromDate(new Date(points[points.length - 1].timestamp * 1000));
+    // Load Moon trajectory
+    if (d.moon) {
+      for (const p of d.moon) {
+        const jd = JulianDate.fromDate(new Date(p.timestamp * 1000));
+        moonPosition.addSample(jd, eciToCartesian3(p.pos_km, Cartesian3));
+      }
+    }
+
+    // Set clock to full mission
+    const startJd = JulianDate.fromDate(new Date(d.orion[0].timestamp * 1000));
+    const stopJd = JulianDate.fromDate(new Date(d.orion[d.orion.length - 1].timestamp * 1000));
     const nowJd = JulianDate.fromDate(new Date());
 
     viewer.clock.startTime = startJd.clone();
     viewer.clock.stopTime = stopJd.clone();
     viewer.clock.currentTime = nowJd.clone();
-    viewer.clock.clockRange = ClockRange.CLAMPED;
+    viewer.clock.clockRange = ClockRange.LOOP_STOP;
     viewer.clock.clockStep = ClockStep.SYSTEM_CLOCK_MULTIPLIER;
-    viewer.clock.multiplier = 1; // real-time
+    viewer.clock.multiplier = 1;
 
     viewer.timeline.zoomTo(startJd, stopJd);
 
-    console.log(`[HISTORY] Loaded ${points.length} Horizons waypoints`);
+    console.log(`[MISSION] Loaded ${d.orion.length} Orion + ${d.moon?.length || 0} Moon waypoints`);
 
-    // Update telemetry panel with latest
-    const latest = points[points.length - 1];
-    updateTelemetryDOM(latest);
+    // Update telemetry panel periodically based on clock
+    viewer.clock.onTick.addEventListener((clock) => {
+      updateTelemetryFromClock(clock.currentTime, d.orion);
+    });
   })
-  .catch((e) => console.warn("[HISTORY] Failed:", e));
+  .catch((e) => console.warn("[MISSION] Failed:", e));
 
-function updateTelemetryDOM(point) {
-  dom.met.textContent = point.met || "--";
-  dom.phase.textContent = point.phase || "--";
-  dom.velocity.textContent = point.velocity_kms ? `${point.velocity_kms.toFixed(3)} km/s` : "--";
-  dom.earth.textContent = point.earth_dist_km ? `${Math.round(point.earth_dist_km).toLocaleString()} km` : "--";
-  dom.moon.textContent = point.moon_dist_km ? `${Math.round(point.moon_dist_km).toLocaleString()} km` : "--";
-  dom.source.textContent = point.source || "jpl_horizons";
+// Update telemetry panel based on current animation time
+let lastUpdateSec = 0;
+function updateTelemetryFromClock(currentTime, orionData) {
+  const nowSec = JulianDate.toDate(currentTime).getTime() / 1000;
+  // Throttle to ~2 updates/sec
+  if (Math.abs(nowSec - lastUpdateSec) < 0.5) return;
+  lastUpdateSec = nowSec;
+
+  // Find closest point
+  let best = null;
+  let bestDt = Infinity;
+  for (const p of orionData) {
+    const dt = Math.abs(p.timestamp - nowSec);
+    if (dt < bestDt) { bestDt = dt; best = p; }
+  }
+  if (!best) return;
+
+  // Compute distances from pos_km
+  const [x, y, z] = best.pos_km;
+  const earthDist = Math.sqrt(x * x + y * y + z * z);
+  const vel = best.vel_kms
+    ? Math.sqrt(best.vel_kms[0] ** 2 + best.vel_kms[1] ** 2 + best.vel_kms[2] ** 2)
+    : 0;
+
+  // Elapsed time from mission start
+  const elapsed = nowSec - orionData[0].timestamp;
+  const days = Math.floor(elapsed / 86400);
+  const hrs = Math.floor((elapsed % 86400) / 3600);
+  const mins = Math.floor((elapsed % 3600) / 60);
+  const secs = Math.floor(elapsed % 60);
+
+  const isFuture = nowSec > Date.now() / 1000;
+
+  dom.met.textContent = `T+${days}d ${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  dom.phase.textContent = isFuture ? "Predicted" : earthDist > 300000 ? "Lunar Vicinity" : earthDist > 50000 ? "Outbound Coast" : "Earth Orbit";
+  dom.velocity.textContent = vel ? `${vel.toFixed(3)} km/s` : "--";
+  dom.earth.textContent = `${Math.round(earthDist).toLocaleString()} km`;
+  dom.source.textContent = isFuture ? "prediction" : "jpl_horizons";
+  dom.count.textContent = orionData.length;
 }
 
-// ── Fetch alerts and validation ──
+// ── Alerts & Validation ──
 
 fetch("/api/alerts/latest?n=10")
   .then((r) => r.json())
@@ -253,8 +307,7 @@ function addAlert(alert) {
   while (dom.alertList.children.length > 8) dom.alertList.removeChild(dom.alertList.lastChild);
 }
 
-// ── WebSocket for live updates ──
-
+// ── WebSocket ──
 let validationCount = 0;
 function connectWs() {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -263,17 +316,7 @@ function connectWs() {
   ws.onmessage = (evt) => {
     try {
       const msg = JSON.parse(evt.data);
-      if (msg.type === "telemetry" && msg.data) {
-        updateTelemetryDOM(msg.data);
-        // If Horizons data with ECI, add to animation
-        if (msg.data.pos_km) {
-          const jd = JulianDate.fromDate(new Date(msg.data.timestamp * 1000));
-          orionPosition.addSample(jd, eciToCartesian3(msg.data.pos_km, Cartesian3));
-          // Extend clock stop time
-          viewer.clock.stopTime = jd.clone();
-        }
-      }
-      else if (msg.type === "alert") addAlert(msg.data);
+      if (msg.type === "alert") addAlert(msg.data);
       else if (msg.type === "validation") { updateValidation(msg.data); dom.vCount.textContent = ++validationCount; }
     } catch {}
   };
