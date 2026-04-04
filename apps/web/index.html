@@ -3,13 +3,46 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Selene-Insight — Artemis II Mission Control</title>
-    <style>
-      html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
-    </style>
+    <title>Selene-Insight — Artemis II Digital Twin</title>
+    <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <script src="/node_modules/openmct/dist/openmct.js"></script>
+    <!-- CesiumJS fills the entire viewport -->
+    <div id="cesium-container"></div>
+
+    <!-- Floating overlay panels -->
+    <div id="header-bar">
+      <div class="header-title">SELENE-INSIGHT</div>
+      <div class="header-subtitle">Artemis II Real-Time Digital Twin</div>
+      <div id="connection-status" class="status-live">LIVE</div>
+    </div>
+
+    <div id="telemetry-panel" class="panel">
+      <h3>TELEMETRY</h3>
+      <div class="row"><span class="label">MET</span><span id="t-met" class="value">--</span></div>
+      <div class="row"><span class="label">PHASE</span><span id="t-phase" class="value">--</span></div>
+      <div class="row"><span class="label">VELOCITY</span><span id="t-velocity" class="value">--</span></div>
+      <div class="row"><span class="label">EARTH DIST</span><span id="t-earth" class="value">--</span></div>
+      <div class="row"><span class="label">MOON DIST</span><span id="t-moon" class="value">--</span></div>
+      <div class="row dim"><span class="label">SOURCE</span><span id="t-source" class="value">--</span></div>
+      <div class="row dim"><span class="label">READINGS</span><span id="t-count" class="value">0</span></div>
+    </div>
+
+    <div id="validation-panel" class="panel">
+      <h3>DATA QUALITY</h3>
+      <div id="v-grade" class="grade-badge">--</div>
+      <div class="row"><span class="label">CONFIDENCE</span><span id="v-confidence" class="value">--</span></div>
+      <div class="row"><span class="label">VEL DELTA</span><span id="v-vel" class="value">--</span></div>
+      <div class="row"><span class="label">EARTH DELTA</span><span id="v-earth" class="value">--</span></div>
+      <div class="row"><span class="label">MOON DELTA</span><span id="v-moon" class="value">--</span></div>
+      <div class="row dim"><span class="label">VALIDATIONS</span><span id="v-count" class="value">0</span></div>
+    </div>
+
+    <div id="alert-panel" class="panel">
+      <h3>SKEPTIC ALERTS</h3>
+      <div id="alert-list"></div>
+    </div>
+
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

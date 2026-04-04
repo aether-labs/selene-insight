@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "cesium": "^1.140.0",
-    "openmct": "^2.2.4",
     "vite": "^8.0.3"
   },
   "devDependencies": {

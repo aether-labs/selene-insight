@@ -3,11 +3,6 @@ import cesium from "vite-plugin-cesium";
 
 export default defineConfig({
   plugins: [cesium()],
-  css: {
-    lightningcss: {
-      errorRecovery: true,
-    },
-  },
   server: {
     port: 5173,
     proxy: {
@@ -17,8 +12,5 @@ export default defineConfig({
         ws: true,
       },
     },
-  },
-  build: {
-    chunkSizeWarningLimit: 4000,
   },
 });
