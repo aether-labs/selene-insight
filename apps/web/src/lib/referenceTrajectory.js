@@ -1,61 +1,27 @@
 /**
  * Artemis II reference trajectory generator.
  *
- * Generates an approximate free-return trajectory around the Moon
- * based on mission parameters. This is a visualization aid, not
- * a navigation solution.
+ * Generates a parametric free-return trajectory in ECI coordinates.
+ * Uses direct 3D curve generation instead of distance-based trilateration
+ * to avoid geometric artifacts (heart shapes from flipping offsets).
  *
  * Artemis II profile (~10 days):
- *   Day 0:     Launch + TLI burn → depart Earth
- *   Day 0-4:   Outbound coast (Earth→Moon)
- *   Day 4-5:   Lunar flyby (closest approach ~100 km above surface)
- *   Day 5-9:   Return coast (Moon→Earth)
- *   Day 10:    Re-entry
+ *   Day 0-4:   Outbound (Earth → Moon)
+ *   Day 4-5:   Lunar flyby (loop behind Moon)
+ *   Day 5-10:  Return (Moon → Earth)
  */
 
-import { moonPositionECI, trilaterateSpacecraft, eciToCartesian3 } from "./orbit.js";
+import { moonPositionECI, eciToCartesian3 } from "./orbit.js";
 
-// Mission duration in days
 const MISSION_DAYS = 10;
-const STEPS = 500; // trajectory resolution
-
-// Approximate distance profile (km from Earth center)
-// Based on Artemis II free-return trajectory shape
-function earthDistanceProfile(t) {
-  // t: 0..1 normalized mission time
-  // Outbound: accelerating away from Earth
-  if (t < 0.42) {
-    const p = t / 0.42;
-    // Smooth acceleration from LEO to lunar distance
-    return 6571 + (384400 - 6571) * (1 - Math.cos(p * Math.PI)) / 2;
-  }
-  // Lunar flyby: closest to Moon at t=0.42-0.48
-  if (t < 0.48) {
-    const p = (t - 0.42) / 0.06;
-    // Swing around Moon — distance from Earth stays near lunar distance
-    const base = 384400;
-    const dip = 20000; // slight dip as trajectory curves
-    return base - dip * Math.sin(p * Math.PI);
-  }
-  // Return: decelerating back toward Earth
-  const p = (t - 0.48) / 0.52;
-  return 384400 - (384400 - 6571) * (1 - Math.cos(p * Math.PI)) / 2;
-}
-
-function moonDistanceProfile(earthDist) {
-  // Approximate: Moon is ~384400 km from Earth
-  // This is simplified — real distance depends on angle, not just radial distance
-  // For the reference line, derive from earth dist and moon dist constraint
-  const moonDist = Math.abs(384400 - earthDist) + 100; // minimum 100 km flyby
-  return Math.max(moonDist, 100 + 1737); // above lunar surface
-}
+const STEPS = 600;
+const R_EARTH_KM = 6371;
+const MOON_DIST_KM = 384400;
+const FLYBY_ALT_KM = 100; // closest approach above Moon surface
+const MOON_RADIUS_KM = 1737;
 
 /**
- * Generate reference trajectory as array of ECI positions.
- *
- * @param {number} launchTimestamp - Unix timestamp of mission start
- * @param {object} Cartesian3 - Cesium Cartesian3 class
- * @returns {Array} Array of Cartesian3 positions
+ * Generate reference trajectory as array of Cartesian3 positions.
  */
 export function generateReferenceTrajectory(launchTimestamp, Cartesian3) {
   const positions = [];
@@ -63,33 +29,103 @@ export function generateReferenceTrajectory(launchTimestamp, Cartesian3) {
 
   for (let i = 0; i <= STEPS; i++) {
     const ts = launchTimestamp + i * dt;
-    const t = i / STEPS; // normalized 0..1
-
-    const earthDist = earthDistanceProfile(t);
-    const moonDist = moonDistanceProfile(earthDist);
+    const t = i / STEPS; // 0..1 normalized mission time
 
     const moonECI = moonPositionECI(ts);
-    const craftECI = trilaterateSpacecraft(moonECI, earthDist, moonDist);
+    const moonDist = Math.sqrt(
+      moonECI[0] ** 2 + moonECI[1] ** 2 + moonECI[2] ** 2
+    );
 
-    if (craftECI) {
-      positions.push(eciToCartesian3(craftECI, Cartesian3));
+    // Unit vector Earth → Moon
+    const ux = moonECI[0] / moonDist;
+    const uy = moonECI[1] / moonDist;
+    const uz = moonECI[2] / moonDist;
+
+    // Perpendicular vector (in orbital plane)
+    let px, py, pz;
+    if (Math.abs(uz) < 0.9) {
+      const len = Math.sqrt(ux * ux + uy * uy);
+      px = -uy / len;
+      py = ux / len;
+      pz = 0;
+    } else {
+      const len = Math.sqrt(uz * uz + uy * uy);
+      px = 0;
+      py = -uz / len;
+      pz = uy / len;
     }
+
+    let x, y, z;
+
+    if (t < 0.40) {
+      // Outbound: Earth to Moon, slight curve
+      const p = t / 0.40;
+      const r = R_EARTH_KM + (moonDist - R_EARTH_KM) * smoothStep(p);
+      // Gentle curve off the Earth-Moon line (prograde side)
+      const lateral = moonDist * 0.02 * Math.sin(p * Math.PI);
+      x = ux * r + px * lateral;
+      y = uy * r + py * lateral;
+      z = uz * r + pz * lateral;
+    } else if (t < 0.50) {
+      // Lunar flyby: loop behind Moon
+      const p = (t - 0.40) / 0.10;
+      const angle = -Math.PI * 0.3 + p * Math.PI * 1.6; // sweep ~290°
+      const loopRadius = MOON_RADIUS_KM + FLYBY_ALT_KM + 2000;
+
+      // Out-of-plane component for 3D flyby
+      const nz = ux * py - uy * px; // normal to orbital plane
+      const ny = -(ux * pz - uz * px);
+      const nx = uy * pz - uz * py;
+      const nLen = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+
+      x = moonECI[0] + (ux * Math.cos(angle) + px * Math.sin(angle)) * loopRadius;
+      y = moonECI[1] + (uy * Math.cos(angle) + py * Math.sin(angle)) * loopRadius;
+      z = moonECI[2] + (uz * Math.cos(angle) + pz * Math.sin(angle)) * loopRadius;
+    } else {
+      // Return: Moon back to Earth, wider curve (different side)
+      const p = (t - 0.50) / 0.50;
+      const r = moonDist - (moonDist - R_EARTH_KM) * smoothStep(p);
+      // Return on opposite side of Earth-Moon line
+      const lateral = -moonDist * 0.03 * Math.sin(p * Math.PI);
+      x = ux * r + px * lateral;
+      y = uy * r + py * lateral;
+      z = uz * r + pz * lateral;
+    }
+
+    positions.push(eciToCartesian3([x, y, z], Cartesian3));
   }
 
   return positions;
 }
 
 /**
+ * Generate Moon orbit ring (circle at Moon's distance).
+ */
+export function generateMoonOrbit(timestampSec, Cartesian3, steps = 200) {
+  const positions = [];
+  const period = 27.321661 * 86400;
+
+  for (let i = 0; i <= steps; i++) {
+    const ts = timestampSec - period / 2 + (period * i) / steps;
+    const moonECI = moonPositionECI(ts);
+    positions.push(eciToCartesian3(moonECI, Cartesian3));
+  }
+
+  return positions;
+}
+
+function smoothStep(t) {
+  return t * t * (3 - 2 * t);
+}
+
+/**
  * Estimate launch timestamp from current telemetry.
- * Uses MET string to calculate when T+0 was.
  */
 export function estimateLaunchTime(telemetryPoint) {
   if (!telemetryPoint) return null;
-
   const met = telemetryPoint.met;
   if (!met) return null;
 
-  // Parse MET formats: "T+1d 11:27:31" or "001:11:27:31"
   let totalSeconds = 0;
 
   const matchNew = met.match(/T\+(\d+)d\s+(\d+):(\d+):(\d+)/);

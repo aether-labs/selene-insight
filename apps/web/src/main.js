@@ -12,7 +12,6 @@ import {
   VerticalOrigin,
   NearFarScalar,
   PolylineDashMaterialProperty,
-  CallbackProperty,
   SceneMode,
 } from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
@@ -20,6 +19,7 @@ import "cesium/Build/Cesium/Widgets/widgets.css";
 import { telemetryToPosition, moonToPosition } from "./lib/orbit.js";
 import {
   generateReferenceTrajectory,
+  generateMoonOrbit,
   estimateLaunchTime,
 } from "./lib/referenceTrajectory.js";
 
@@ -31,6 +31,7 @@ const MOON_RADIUS_M = 1.737e6;
 
 // ── State ──
 let telemetryBuffer = [];
+let actualPositions = []; // pre-computed Cartesian3 array
 let alertBuffer = [];
 let launchTime = null;
 
@@ -47,40 +48,49 @@ const viewer = new Viewer("cesium-container", {
   infoBox: true,
   selectionIndicator: false,
   sceneMode: SceneMode.SCENE3D,
-  skyAtmosphere: false,
+  // Keep skyBox and skyAtmosphere for proper star background
 });
 
-// Camera: frame the Earth-Moon system
+// Camera: frame the Earth-Moon system from above
 viewer.camera.setView({
   destination: Cartesian3.fromDegrees(20, 30, 800_000_000),
 });
 
 // ── Entities ──
 
-// Reference trajectory (dashed)
+// Moon orbit ring
+const nowTs = Date.now() / 1000;
+const moonOrbitPositions = generateMoonOrbit(nowTs, Cartesian3);
+viewer.entities.add({
+  name: "Moon Orbit",
+  polyline: {
+    positions: moonOrbitPositions,
+    width: 1,
+    material: Color.fromCssColorString("#555555").withAlpha(0.3),
+  },
+});
+
+// Reference trajectory (dashed white) — populated on first telemetry
 const refTrajectoryEntity = viewer.entities.add({
   name: "Predicted Trajectory",
   polyline: {
     positions: [],
-    width: 2,
+    width: 2.5,
     material: new PolylineDashMaterialProperty({
-      color: Color.fromCssColorString("#ffffff").withAlpha(0.2),
+      color: Color.fromCssColorString("#ffffff").withAlpha(0.3),
       dashLength: 20,
     }),
   },
 });
 
-// Actual trajectory (solid bright)
+// Actual trajectory (solid bright cyan) — updated incrementally
 const actualPathEntity = viewer.entities.add({
   name: "Actual Path",
   polyline: {
-    positions: new CallbackProperty(() => {
-      return telemetryBuffer
-        .map((p) => telemetryToPosition(p, Cartesian3))
-        .filter(Boolean);
-    }, false),
+    positions: [],
     width: 4,
     material: Color.fromCssColorString("#00ccff").withAlpha(0.85),
+    clampToGround: false,
   },
 });
 
@@ -91,7 +101,7 @@ const orionGlow = viewer.entities.add({
   point: { pixelSize: 32, color: Color.fromCssColorString("#00ccff").withAlpha(0.2) },
 });
 
-// Orion core
+// Orion core + label
 const orionEntity = viewer.entities.add({
   name: "Orion",
   position: Cartesian3.ZERO,
@@ -109,8 +119,7 @@ const orionEntity = viewer.entities.add({
   },
 });
 
-// Moon
-const nowTs = Date.now() / 1000;
+// Moon sphere + label
 const moonEntity = viewer.entities.add({
   name: "Moon",
   position: moonToPosition(nowTs, Cartesian3),
@@ -148,7 +157,7 @@ viewer.entities.add({
   },
 });
 
-// ── DOM references ──
+// ── DOM refs ──
 const dom = {
   met: document.getElementById("t-met"),
   phase: document.getElementById("t-phase"),
@@ -173,19 +182,31 @@ function updateTelemetry(point) {
   telemetryBuffer.push(point);
   if (telemetryBuffer.length > 2000) {
     telemetryBuffer = telemetryBuffer.slice(-1500);
+    // Recompute all positions
+    actualPositions = telemetryBuffer
+      .map((p) => telemetryToPosition(p, Cartesian3))
+      .filter(Boolean);
+  } else {
+    // Append new position
+    const pos = telemetryToPosition(point, Cartesian3);
+    if (pos) actualPositions.push(pos);
   }
 
-  // Update 3D positions
+  // Update actual path polyline
+  actualPathEntity.polyline.positions = actualPositions;
+
+  // Update Orion marker
   const pos = telemetryToPosition(point, Cartesian3);
   if (pos) {
     orionEntity.position = pos;
     orionGlow.position = pos;
   }
 
+  // Update Moon
   const ts = point.timestamp || Date.now() / 1000;
   moonEntity.position = moonToPosition(ts, Cartesian3);
 
-  // Generate reference trajectory once
+  // Generate reference trajectory once we have MET
   if (!launchTime) {
     launchTime = estimateLaunchTime(point);
     if (launchTime) {
@@ -215,11 +236,9 @@ function updateTelemetry(point) {
 function updateValidation(data) {
   const grade = data.grade || "--";
   const conf = data.confidence;
-
   dom.grade.textContent = grade.toUpperCase();
   dom.grade.className = `grade-badge grade-${grade}`;
   dom.confidence.textContent = conf != null ? `${(conf * 100).toFixed(1)}%` : "--";
-
   const dev = data.deviations || {};
   dom.vVel.textContent = dev.velocity_pct != null ? `${dev.velocity_pct.toFixed(2)}%` : "--";
   dom.vEarth.textContent = dev.earth_dist_pct != null ? `${dev.earth_dist_pct.toFixed(2)}%` : "--";
@@ -229,16 +248,14 @@ function updateValidation(data) {
 function addAlert(alert) {
   alertBuffer.push(alert);
   if (alertBuffer.length > 20) alertBuffer = alertBuffer.slice(-15);
-
   const el = document.createElement("div");
   el.className = "alert-item";
+  const type = (alert.alert_type || "UNKNOWN").toUpperCase().replace("_", " ");
   el.innerHTML = `
-    <div class="alert-type type-${alert.alert_type || ""}">${(alert.alert_type || "UNKNOWN").toUpperCase().replace("_", " ")}</div>
+    <div class="alert-type type-${alert.alert_type || ""}">${type}</div>
     <div class="alert-detail">${alert.details || ""}</div>
   `;
   dom.alertList.prepend(el);
-
-  // Keep max 8 visible
   while (dom.alertList.children.length > 8) {
     dom.alertList.removeChild(dom.alertList.lastChild);
   }
@@ -246,14 +263,10 @@ function addAlert(alert) {
 
 // ── Fetch initial data ──
 
-fetch("/api/telemetry/latest?n=200")
+fetch("/api/telemetry/latest?n=500")
   .then((r) => r.json())
   .then((d) => {
-    if (d.data) {
-      // Oldest first
-      const sorted = d.data.reverse();
-      sorted.forEach(updateTelemetry);
-    }
+    if (d.data) d.data.reverse().forEach(updateTelemetry);
   })
   .catch(() => {});
 
@@ -267,12 +280,8 @@ fetch("/api/alerts/latest?n=10")
 fetch("/api/validation/latest")
   .then((r) => r.json())
   .then((d) => {
-    if (d.recent && d.recent.length) {
-      updateValidation(d.recent[d.recent.length - 1]);
-    }
-    if (d.stats) {
-      dom.vCount.textContent = d.stats.total_validations || 0;
-    }
+    if (d.recent && d.recent.length) updateValidation(d.recent[d.recent.length - 1]);
+    if (d.stats) dom.vCount.textContent = d.stats.total_validations || 0;
   })
   .catch(() => {});
 
@@ -299,9 +308,7 @@ function connectWs() {
         validationCount++;
         dom.vCount.textContent = validationCount;
       }
-    } catch {
-      /* ignore */
-    }
+    } catch { /* ignore */ }
   };
 
   ws.onclose = () => {
