@@ -13,11 +13,10 @@ import {
   NearFarScalar,
   PolylineDashMaterialProperty,
   SceneMode,
-  SkyBox,
 } from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 
-import { telemetryToPosition, moonToPosition } from "./lib/orbit.js";
+import { telemetryToPosition, moonToPosition, eciToCartesian3 } from "./lib/orbit.js";
 import {
   generateReferenceTrajectory,
   generateMoonOrbit,
@@ -33,7 +32,6 @@ const LABEL_FONT = "bold 22px monospace";
 
 // ── State ──
 let telemetryBuffer = [];
-let actualPositions = [];
 let alertBuffer = [];
 let launchTime = null;
 
@@ -50,22 +48,21 @@ const viewer = new Viewer("cesium-container", {
   infoBox: true,
   selectionIndicator: false,
   sceneMode: SceneMode.SCENE3D,
-  skyBox: false,       // disable blurry star texture
+  skyBox: false,
   skyAtmosphere: false,
 });
-
-// Pure black background
 viewer.scene.backgroundColor = Color.BLACK;
 
-// Camera: frame the Earth-Moon system
+// Camera
 viewer.camera.setView({
   destination: Cartesian3.fromDegrees(20, 30, 800_000_000),
 });
 
 // ── Entities ──
 
-// Moon orbit ring (dim)
 const nowTs = Date.now() / 1000;
+
+// Moon orbit ring
 viewer.entities.add({
   name: "Moon Orbit",
   polyline: {
@@ -75,7 +72,7 @@ viewer.entities.add({
   },
 });
 
-// Reference trajectory (dashed white) — set on first telemetry
+// Predicted trajectory (dashed white) — from distance model
 const refTrajectoryEntity = viewer.entities.add({
   name: "Predicted Trajectory",
   polyline: {
@@ -88,13 +85,23 @@ const refTrajectoryEntity = viewer.entities.add({
   },
 });
 
-// Actual flown path (solid bright cyan)
-const actualPathEntity = viewer.entities.add({
-  name: "Actual Path",
+// Actual flown path from Horizons (solid cyan) — full history
+const historyPathEntity = viewer.entities.add({
+  name: "Flown Path (Horizons)",
   polyline: {
     positions: [],
     width: 4,
-    material: Color.fromCssColorString("#00ccff"),
+    material: Color.fromCssColorString("#00ccff").withAlpha(0.9),
+  },
+});
+
+// Live scraper path (thinner, builds in real-time)
+const livePathEntity = viewer.entities.add({
+  name: "Live Path",
+  polyline: {
+    positions: [],
+    width: 2,
+    material: Color.fromCssColorString("#00ffaa").withAlpha(0.6),
   },
 });
 
@@ -104,7 +111,7 @@ const orionGlow = viewer.entities.add({
   point: { pixelSize: 36, color: Color.fromCssColorString("#00ccff").withAlpha(0.2) },
 });
 
-// Orion core + label
+// Orion
 const orionEntity = viewer.entities.add({
   name: "Orion",
   position: Cartesian3.ZERO,
@@ -122,7 +129,7 @@ const orionEntity = viewer.entities.add({
   },
 });
 
-// Moon sphere + label
+// Moon
 const moonEntity = viewer.entities.add({
   name: "Moon",
   position: moonToPosition(nowTs, Cartesian3),
@@ -143,7 +150,7 @@ const moonEntity = viewer.entities.add({
   },
 });
 
-// Earth — visible sphere (exaggerated to 3x radius for visibility at this zoom)
+// Earth — visible sphere (3x exaggerated)
 const EARTH_VIS_RADIUS = 6371000 * 3;
 viewer.entities.add({
   name: "Earth",
@@ -186,53 +193,41 @@ const dom = {
 
 // ── Update functions ──
 
+let livePositions = [];
+
 function updateTelemetry(point) {
   telemetryBuffer.push(point);
-  if (telemetryBuffer.length > 2000) {
-    telemetryBuffer = telemetryBuffer.slice(-1500);
-    actualPositions = telemetryBuffer
-      .map((p) => telemetryToPosition(p, Cartesian3))
-      .filter(Boolean);
-  } else {
-    const pos = telemetryToPosition(point, Cartesian3);
-    if (pos) actualPositions.push(pos);
+  if (telemetryBuffer.length > 2000) telemetryBuffer = telemetryBuffer.slice(-1500);
+
+  // Update Orion position
+  const pos = telemetryToPosition(point, Cartesian3);
+  if (pos) {
+    orionEntity.position = pos;
+    orionGlow.position = pos;
+    livePositions.push(pos);
+    if (livePositions.length > 1) {
+      livePathEntity.polyline.positions = [...livePositions];
+    }
   }
 
-  // Update actual path (solid line showing where Orion has been)
-  if (actualPositions.length > 1) {
-    actualPathEntity.polyline.positions = [...actualPositions];
-  }
-
-  // Update Orion marker
-  if (actualPositions.length > 0) {
-    const latest = actualPositions[actualPositions.length - 1];
-    orionEntity.position = latest;
-    orionGlow.position = latest;
-  }
-
-  // Update Moon position
+  // Update Moon
   const ts = point.timestamp || Date.now() / 1000;
   moonEntity.position = moonToPosition(ts, Cartesian3);
 
-  // Generate reference trajectory once (uses same trilateration as live positions)
+  // Generate predicted trajectory once
   if (!launchTime) {
     launchTime = estimateLaunchTime(point);
     if (launchTime) {
-      refTrajectoryEntity.polyline.positions = generateReferenceTrajectory(
-        launchTime, Cartesian3
-      );
+      refTrajectoryEntity.polyline.positions = generateReferenceTrajectory(launchTime, Cartesian3);
     }
   }
 
   // Update DOM
   dom.met.textContent = point.met || "--";
   dom.phase.textContent = point.phase || "--";
-  dom.velocity.textContent = point.velocity_kms
-    ? `${point.velocity_kms.toFixed(3)} km/s` : "--";
-  dom.earth.textContent = point.earth_dist_km
-    ? `${Math.round(point.earth_dist_km).toLocaleString()} km` : "--";
-  dom.moon.textContent = point.moon_dist_km
-    ? `${Math.round(point.moon_dist_km).toLocaleString()} km` : "--";
+  dom.velocity.textContent = point.velocity_kms ? `${point.velocity_kms.toFixed(3)} km/s` : "--";
+  dom.earth.textContent = point.earth_dist_km ? `${Math.round(point.earth_dist_km).toLocaleString()} km` : "--";
+  dom.moon.textContent = point.moon_dist_km ? `${Math.round(point.moon_dist_km).toLocaleString()} km` : "--";
   dom.source.textContent = point.source || "issinfo";
   dom.count.textContent = telemetryBuffer.length;
 }
@@ -241,8 +236,7 @@ function updateValidation(data) {
   const grade = data.grade || "--";
   dom.grade.textContent = grade.toUpperCase();
   dom.grade.className = `grade-badge grade-${grade}`;
-  dom.confidence.textContent = data.confidence != null
-    ? `${(data.confidence * 100).toFixed(1)}%` : "--";
+  dom.confidence.textContent = data.confidence != null ? `${(data.confidence * 100).toFixed(1)}%` : "--";
   const dev = data.deviations || {};
   dom.vVel.textContent = dev.velocity_pct != null ? `${dev.velocity_pct.toFixed(2)}%` : "--";
   dom.vEarth.textContent = dev.earth_dist_pct != null ? `${dev.earth_dist_pct.toFixed(2)}%` : "--";
@@ -255,8 +249,7 @@ function addAlert(alert) {
   const el = document.createElement("div");
   el.className = "alert-item";
   const type = (alert.alert_type || "UNKNOWN").toUpperCase().replace("_", " ");
-  el.innerHTML = `
-    <div class="alert-type type-${alert.alert_type || ""}">${type}</div>
+  el.innerHTML = `<div class="alert-type type-${alert.alert_type || ""}">${type}</div>
     <div class="alert-detail">${alert.details || ""}</div>`;
   dom.alertList.prepend(el);
   while (dom.alertList.children.length > 8) dom.alertList.removeChild(dom.alertList.lastChild);
@@ -264,16 +257,35 @@ function addAlert(alert) {
 
 // ── Fetch initial data ──
 
+// 1. Full mission history from Horizons (solid cyan line: actual flown path)
+fetch("/api/telemetry/history")
+  .then((r) => r.json())
+  .then((d) => {
+    if (d.data && d.data.length) {
+      const positions = d.data
+        .filter((p) => p.pos_km)
+        .map((p) => eciToCartesian3(p.pos_km, Cartesian3));
+      if (positions.length > 1) {
+        historyPathEntity.polyline.positions = positions;
+      }
+      console.log(`[HISTORY] Drew ${positions.length} points from Horizons`);
+    }
+  })
+  .catch((e) => console.warn("[HISTORY] Failed:", e));
+
+// 2. Recent live telemetry
 fetch("/api/telemetry/latest?n=500")
   .then((r) => r.json())
   .then((d) => { if (d.data) d.data.reverse().forEach(updateTelemetry); })
   .catch(() => {});
 
+// 3. Alerts
 fetch("/api/alerts/latest?n=10")
   .then((r) => r.json())
   .then((d) => { if (d.data) d.data.reverse().forEach(addAlert); })
   .catch(() => {});
 
+// 4. Validation
 fetch("/api/validation/latest")
   .then((r) => r.json())
   .then((d) => {

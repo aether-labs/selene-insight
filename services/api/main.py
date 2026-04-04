@@ -87,6 +87,33 @@ async def alerts_latest(n: int = Query(default=20, ge=1, le=500)):
     return {"data": alert_store.latest(n), "count": alert_store.size}
 
 
+@app.get("/api/telemetry/history")
+async def telemetry_history():
+    """Full mission trajectory from JPL Horizons (launch to now, 30-min steps)."""
+    import math
+    from datetime import datetime, timezone, timedelta
+    from services.telemetry.horizons_worker import (
+        fetch_horizons_vectors, fetch_moon_position, vectors_to_telemetry,
+    )
+
+    # Artemis II launch: 2026-04-02 01:58 UTC (from Horizons ephemeris start)
+    launch = "2026-04-02 02:00"
+    now = datetime.now(timezone.utc)
+    stop = now.strftime("%Y-%m-%d %H:%M")
+
+    try:
+        moon_pos = await fetch_moon_position(stop)
+        vectors = await fetch_horizons_vectors(launch, stop, "30 min")
+        data = []
+        for v in vectors:
+            t = vectors_to_telemetry(v, moon_pos)
+            t["pos_km"] = [v["x_km"], v["y_km"], v["z_km"]]
+            data.append(t)
+        return {"data": data, "count": len(data), "source": "jpl_horizons"}
+    except Exception as e:
+        return {"data": [], "count": 0, "error": str(e)}
+
+
 @app.get("/api/validation/latest")
 async def validation_latest():
     """Latest cross-validation results and confidence score."""
