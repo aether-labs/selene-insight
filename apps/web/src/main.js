@@ -71,10 +71,11 @@ const viewer = new Viewer("cesium-container", {
   infoBox: true,
   selectionIndicator: false,
   sceneMode: SceneMode.SCENE3D,
-  skyBox: false,
-  skyAtmosphere: false,
+  // Keep default Cesium skyBox for star background
 });
-viewer.scene.backgroundColor = Color.BLACK;
+
+// Ensure globe lighting
+viewer.scene.globe.enableLighting = true;
 
 // Sun lighting
 viewer.scene.globe.enableLighting = true;
@@ -198,13 +199,11 @@ const dom = {
   earth: document.getElementById("t-earth"),
   moon: document.getElementById("t-moon"),
   source: document.getElementById("t-source"),
-  count: document.getElementById("t-count"),
   grade: document.getElementById("v-grade"),
   confidence: document.getElementById("v-confidence"),
   vVel: document.getElementById("v-vel"),
   vEarth: document.getElementById("v-earth"),
   vMoon: document.getElementById("v-moon"),
-  vCount: document.getElementById("v-count"),
   alertList: document.getElementById("alert-list"),
   connStatus: document.getElementById("connection-status"),
 };
@@ -258,6 +257,9 @@ fetch("/api/telemetry/history")
         },
       });
     }
+
+    // Position the NOW marker on the timeline
+    positionNowMarker(startJd, stopJd);
 
     // Tick handler for telemetry panel + chart
     viewer.clock.onTick.addEventListener((clock) => {
@@ -354,13 +356,28 @@ function updateFromClock(currentTime) {
   dom.velocity.textContent = vel ? `${vel.toFixed(3)} km/s` : "--";
   dom.earth.textContent = `${Math.round(earthDist).toLocaleString()} km`;
   dom.source.textContent = isFuture ? "prediction" : "jpl_horizons";
-  dom.count.textContent = orionDataCache.length;
 
   // Update velocity chart bar
   updateMiniChart(vel, earthDist);
 }
 
 function pad(n) { return String(n).padStart(2, "0"); }
+
+function positionNowMarker(startJd, stopJd) {
+  const marker = document.getElementById("now-marker");
+  const timeline = document.querySelector(".cesium-viewer-timelineContainer");
+  if (!marker || !timeline) return;
+
+  const nowJd = JulianDate.fromDate(new Date());
+  const startSec = JulianDate.secondsDifference(startJd, startJd);
+  const totalSec = JulianDate.secondsDifference(stopJd, startJd);
+  const nowSec = JulianDate.secondsDifference(nowJd, startJd);
+  const pct = Math.max(0, Math.min(1, nowSec / totalSec));
+
+  const rect = timeline.getBoundingClientRect();
+  marker.style.display = "block";
+  marker.style.left = `${rect.left + rect.width * pct}px`;
+}
 
 // ── Mini velocity/distance bars ──
 
@@ -408,7 +425,6 @@ fetch("/api/alerts/latest?n=10").then((r) => r.json())
 fetch("/api/validation/latest").then((r) => r.json())
   .then((d) => {
     if (d.recent && d.recent.length) updateValidation(d.recent[d.recent.length - 1]);
-    if (d.stats) dom.vCount.textContent = d.stats.total_validations || 0;
   }).catch(() => {});
 
 function updateValidation(data) {
@@ -444,7 +460,7 @@ function connectWs() {
     try {
       const msg = JSON.parse(evt.data);
       if (msg.type === "alert") addAlert(msg.data);
-      else if (msg.type === "validation") { updateValidation(msg.data); dom.vCount.textContent = ++validationCount; }
+      else if (msg.type === "validation") { updateValidation(msg.data); validationCount++; }
       else if (msg.type === "dsn") updateDSN(msg.data);
     } catch {}
   };
