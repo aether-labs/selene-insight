@@ -1,5 +1,5 @@
 /**
- * Selene-Insight — Full-screen CesiumJS dashboard.
+ * Selene-Insight — Full-screen CesiumJS dashboard with time animation.
  */
 
 import {
@@ -13,15 +13,19 @@ import {
   NearFarScalar,
   PolylineDashMaterialProperty,
   SceneMode,
+  JulianDate,
+  ClockRange,
+  ClockStep,
+  SampledPositionProperty,
+  LagrangePolynomialApproximation,
+  TimeIntervalCollection,
+  TimeInterval,
+  PathGraphics,
 } from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 
-import { telemetryToPosition, moonToPosition, eciToCartesian3 } from "./lib/orbit.js";
-import {
-  generateReferenceTrajectory,
-  generateMoonOrbit,
-  estimateLaunchTime,
-} from "./lib/referenceTrajectory.js";
+import { moonToPosition, eciToCartesian3 } from "./lib/orbit.js";
+import { generateMoonOrbit } from "./lib/referenceTrajectory.js";
 
 // ── Config ──
 Ion.defaultAccessToken =
@@ -31,14 +35,12 @@ const MOON_RADIUS_M = 1.737e6;
 const LABEL_FONT = "bold 22px monospace";
 
 // ── State ──
-let telemetryBuffer = [];
 let alertBuffer = [];
-let launchTime = null;
 
 // ── CesiumJS viewer ──
 const viewer = new Viewer("cesium-container", {
-  timeline: false,
-  animation: false,
+  timeline: true,       // enable for animation scrubbing
+  animation: true,      // play/pause/speed controls
   homeButton: false,
   geocoder: false,
   sceneModePicker: false,
@@ -58,7 +60,7 @@ viewer.camera.setView({
   destination: Cartesian3.fromDegrees(20, 30, 800_000_000),
 });
 
-// ── Entities ──
+// ── Static Entities ──
 
 const nowTs = Date.now() / 1000;
 
@@ -69,63 +71,6 @@ viewer.entities.add({
     positions: generateMoonOrbit(nowTs, Cartesian3),
     width: 1,
     material: Color.fromCssColorString("#444444").withAlpha(0.35),
-  },
-});
-
-// Predicted trajectory (dashed white) — from distance model
-const refTrajectoryEntity = viewer.entities.add({
-  name: "Predicted Trajectory",
-  polyline: {
-    positions: [],
-    width: 2,
-    material: new PolylineDashMaterialProperty({
-      color: Color.fromCssColorString("#ffffff").withAlpha(0.35),
-      dashLength: 20,
-    }),
-  },
-});
-
-// Actual flown path from Horizons (solid cyan) — full history
-const historyPathEntity = viewer.entities.add({
-  name: "Flown Path (Horizons)",
-  polyline: {
-    positions: [],
-    width: 4,
-    material: Color.fromCssColorString("#00ccff").withAlpha(0.9),
-  },
-});
-
-// Live scraper path (thinner, builds in real-time)
-const livePathEntity = viewer.entities.add({
-  name: "Live Path",
-  polyline: {
-    positions: [],
-    width: 2,
-    material: Color.fromCssColorString("#00ffaa").withAlpha(0.6),
-  },
-});
-
-// Orion glow
-const orionGlow = viewer.entities.add({
-  position: Cartesian3.ZERO,
-  point: { pixelSize: 36, color: Color.fromCssColorString("#00ccff").withAlpha(0.2) },
-});
-
-// Orion
-const orionEntity = viewer.entities.add({
-  name: "Orion",
-  position: Cartesian3.ZERO,
-  point: { pixelSize: 14, color: Color.CYAN, outlineColor: Color.WHITE, outlineWidth: 2 },
-  label: {
-    text: "ORION",
-    font: LABEL_FONT,
-    fillColor: Color.CYAN,
-    style: LabelStyle.FILL_AND_OUTLINE,
-    outlineColor: Color.BLACK,
-    outlineWidth: 4,
-    verticalOrigin: VerticalOrigin.BOTTOM,
-    pixelOffset: new Cartesian2(0, -28),
-    scaleByDistance: new NearFarScalar(5e5, 1.6, 1e9, 0.6),
   },
 });
 
@@ -150,8 +95,8 @@ const moonEntity = viewer.entities.add({
   },
 });
 
-// Earth — visible sphere (3x exaggerated)
-const EARTH_VIS_RADIUS = 6371000 * 3;
+// Earth — slight exaggeration (1.5x) for visibility
+const EARTH_VIS_RADIUS = 6371000 * 1.5;
 viewer.entities.add({
   name: "Earth",
   position: Cartesian3.fromDegrees(0, 0, 0),
@@ -167,9 +112,40 @@ viewer.entities.add({
     outlineColor: Color.BLACK,
     outlineWidth: 4,
     verticalOrigin: VerticalOrigin.BOTTOM,
-    pixelOffset: new Cartesian2(0, -20),
+    pixelOffset: new Cartesian2(0, -18),
     scaleByDistance: new NearFarScalar(5e5, 1.6, 1e9, 0.6),
   },
+});
+
+// Orion entity — position set by SampledPositionProperty after history loads
+const orionPosition = new SampledPositionProperty();
+orionPosition.setInterpolationOptions({
+  interpolationDegree: 3,
+  interpolationAlgorithm: LagrangePolynomialApproximation,
+});
+
+const orionEntity = viewer.entities.add({
+  name: "Orion",
+  position: orionPosition,
+  point: { pixelSize: 14, color: Color.CYAN, outlineColor: Color.WHITE, outlineWidth: 2 },
+  label: {
+    text: "ORION",
+    font: LABEL_FONT,
+    fillColor: Color.CYAN,
+    style: LabelStyle.FILL_AND_OUTLINE,
+    outlineColor: Color.BLACK,
+    outlineWidth: 4,
+    verticalOrigin: VerticalOrigin.BOTTOM,
+    pixelOffset: new Cartesian2(0, -28),
+    scaleByDistance: new NearFarScalar(5e5, 1.6, 1e9, 0.6),
+  },
+  // Trail: shows path Orion has already flown
+  path: new PathGraphics({
+    leadTime: 0,             // no future path (only past)
+    trailTime: 86400 * 10,   // show up to 10 days of trail
+    width: 4,
+    material: Color.fromCssColorString("#00ccff").withAlpha(0.85),
+  }),
 });
 
 // ── DOM refs ──
@@ -191,46 +167,68 @@ const dom = {
   connStatus: document.getElementById("connection-status"),
 };
 
-// ── Update functions ──
+// ── Load Horizons history and set up time animation ──
 
-let livePositions = [];
+fetch("/api/telemetry/history")
+  .then((r) => r.json())
+  .then((d) => {
+    if (!d.data || !d.data.length) return;
 
-function updateTelemetry(point) {
-  telemetryBuffer.push(point);
-  if (telemetryBuffer.length > 2000) telemetryBuffer = telemetryBuffer.slice(-1500);
+    const points = d.data.filter((p) => p.pos_km);
+    if (points.length < 2) return;
 
-  // Update Orion position
-  const pos = telemetryToPosition(point, Cartesian3);
-  if (pos) {
-    orionEntity.position = pos;
-    orionGlow.position = pos;
-    livePositions.push(pos);
-    if (livePositions.length > 1) {
-      livePathEntity.polyline.positions = [...livePositions];
+    // Add samples to Orion's position property
+    for (const p of points) {
+      const jd = JulianDate.fromDate(new Date(p.timestamp * 1000));
+      const pos = eciToCartesian3(p.pos_km, Cartesian3);
+      orionPosition.addSample(jd, pos);
     }
-  }
 
-  // Update Moon
-  const ts = point.timestamp || Date.now() / 1000;
-  moonEntity.position = moonToPosition(ts, Cartesian3);
+    // Set clock to mission time range
+    const startJd = JulianDate.fromDate(new Date(points[0].timestamp * 1000));
+    const stopJd = JulianDate.fromDate(new Date(points[points.length - 1].timestamp * 1000));
+    const nowJd = JulianDate.fromDate(new Date());
 
-  // Generate predicted trajectory once
-  if (!launchTime) {
-    launchTime = estimateLaunchTime(point);
-    if (launchTime) {
-      refTrajectoryEntity.polyline.positions = generateReferenceTrajectory(launchTime, Cartesian3);
-    }
-  }
+    viewer.clock.startTime = startJd.clone();
+    viewer.clock.stopTime = stopJd.clone();
+    viewer.clock.currentTime = nowJd.clone();
+    viewer.clock.clockRange = ClockRange.CLAMPED;
+    viewer.clock.clockStep = ClockStep.SYSTEM_CLOCK_MULTIPLIER;
+    viewer.clock.multiplier = 1; // real-time
 
-  // Update DOM
+    viewer.timeline.zoomTo(startJd, stopJd);
+
+    console.log(`[HISTORY] Loaded ${points.length} Horizons waypoints`);
+
+    // Update telemetry panel with latest
+    const latest = points[points.length - 1];
+    updateTelemetryDOM(latest);
+  })
+  .catch((e) => console.warn("[HISTORY] Failed:", e));
+
+function updateTelemetryDOM(point) {
   dom.met.textContent = point.met || "--";
   dom.phase.textContent = point.phase || "--";
   dom.velocity.textContent = point.velocity_kms ? `${point.velocity_kms.toFixed(3)} km/s` : "--";
   dom.earth.textContent = point.earth_dist_km ? `${Math.round(point.earth_dist_km).toLocaleString()} km` : "--";
   dom.moon.textContent = point.moon_dist_km ? `${Math.round(point.moon_dist_km).toLocaleString()} km` : "--";
-  dom.source.textContent = point.source || "issinfo";
-  dom.count.textContent = telemetryBuffer.length;
+  dom.source.textContent = point.source || "jpl_horizons";
 }
+
+// ── Fetch alerts and validation ──
+
+fetch("/api/alerts/latest?n=10")
+  .then((r) => r.json())
+  .then((d) => { if (d.data) d.data.reverse().forEach(addAlert); })
+  .catch(() => {});
+
+fetch("/api/validation/latest")
+  .then((r) => r.json())
+  .then((d) => {
+    if (d.recent && d.recent.length) updateValidation(d.recent[d.recent.length - 1]);
+    if (d.stats) dom.vCount.textContent = d.stats.total_validations || 0;
+  })
+  .catch(() => {});
 
 function updateValidation(data) {
   const grade = data.grade || "--";
@@ -255,46 +253,8 @@ function addAlert(alert) {
   while (dom.alertList.children.length > 8) dom.alertList.removeChild(dom.alertList.lastChild);
 }
 
-// ── Fetch initial data ──
+// ── WebSocket for live updates ──
 
-// 1. Full mission history from Horizons (solid cyan line: actual flown path)
-fetch("/api/telemetry/history")
-  .then((r) => r.json())
-  .then((d) => {
-    if (d.data && d.data.length) {
-      const positions = d.data
-        .filter((p) => p.pos_km)
-        .map((p) => eciToCartesian3(p.pos_km, Cartesian3));
-      if (positions.length > 1) {
-        historyPathEntity.polyline.positions = positions;
-      }
-      console.log(`[HISTORY] Drew ${positions.length} points from Horizons`);
-    }
-  })
-  .catch((e) => console.warn("[HISTORY] Failed:", e));
-
-// 2. Recent live telemetry
-fetch("/api/telemetry/latest?n=500")
-  .then((r) => r.json())
-  .then((d) => { if (d.data) d.data.reverse().forEach(updateTelemetry); })
-  .catch(() => {});
-
-// 3. Alerts
-fetch("/api/alerts/latest?n=10")
-  .then((r) => r.json())
-  .then((d) => { if (d.data) d.data.reverse().forEach(addAlert); })
-  .catch(() => {});
-
-// 4. Validation
-fetch("/api/validation/latest")
-  .then((r) => r.json())
-  .then((d) => {
-    if (d.recent && d.recent.length) updateValidation(d.recent[d.recent.length - 1]);
-    if (d.stats) dom.vCount.textContent = d.stats.total_validations || 0;
-  })
-  .catch(() => {});
-
-// ── WebSocket ──
 let validationCount = 0;
 function connectWs() {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -303,7 +263,16 @@ function connectWs() {
   ws.onmessage = (evt) => {
     try {
       const msg = JSON.parse(evt.data);
-      if (msg.type === "telemetry") updateTelemetry(msg.data);
+      if (msg.type === "telemetry" && msg.data) {
+        updateTelemetryDOM(msg.data);
+        // If Horizons data with ECI, add to animation
+        if (msg.data.pos_km) {
+          const jd = JulianDate.fromDate(new Date(msg.data.timestamp * 1000));
+          orionPosition.addSample(jd, eciToCartesian3(msg.data.pos_km, Cartesian3));
+          // Extend clock stop time
+          viewer.clock.stopTime = jd.clone();
+        }
+      }
       else if (msg.type === "alert") addAlert(msg.data);
       else if (msg.type === "validation") { updateValidation(msg.data); dom.vCount.textContent = ++validationCount; }
     } catch {}
