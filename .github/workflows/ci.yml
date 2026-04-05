@@ -15,7 +15,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
 
       - run: uv sync --extra dev
-      - run: uv run pytest services/ -v
+      - run: uv run pytest -v
 
   web-build:
     runs-on: ubuntu-latest

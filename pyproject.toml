@@ -21,6 +21,9 @@ dev = [
 [tool.hatch.build.targets.wheel]
 packages = ["services"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

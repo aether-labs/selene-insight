@@ -71,10 +71,19 @@ const viewer = new Viewer("cesium-container", {
   infoBox: true,
   selectionIndicator: false,
   sceneMode: SceneMode.SCENE3D,
-  // Keep default Cesium skyBox for star background
+  skyBox: new SkyBox({
+    sources: {
+      positiveX: "/skybox/px.jpg",
+      negativeX: "/skybox/nx.jpg",
+      positiveY: "/skybox/py.jpg",
+      negativeY: "/skybox/ny.jpg",
+      positiveZ: "/skybox/pz.jpg",
+      negativeZ: "/skybox/nz.jpg",
+    },
+  }),
+  skyAtmosphere: false,
 });
 
-// Ensure globe lighting
 viewer.scene.globe.enableLighting = true;
 
 // Sun lighting
