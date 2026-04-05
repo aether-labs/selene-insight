@@ -37,6 +37,7 @@ import "cesium/Build/Cesium/Widgets/widgets.css";
 import { eciToCartesian3 } from "./lib/orbit.js";
 import { generateMoonOrbit } from "./lib/referenceTrajectory.js";
 import { buildColorSegments } from "./lib/colorScale.js";
+import { createStarfieldSkyboxSources } from "./lib/starfield.js";
 
 // ── Config ──
 Ion.defaultAccessToken =
@@ -46,12 +47,13 @@ const MOON_RADIUS_M = 1.737e6;
 const LABEL_FONT = "bold 22px monospace";
 
 // Mission events (timestamps from Horizons analysis)
+// Mission events — yOff spreads labels vertically to avoid overlap
 const MISSION_EVENTS = [
-  { name: "LAUNCH", ts: 1743559200, icon: "🚀", color: "#00ff88" },
-  { name: "TLI BURN", ts: 1743629400, icon: "🔥", color: "#ff8800" },
-  { name: "LUNAR CLOSEST", ts: 1743980400, icon: "🌙", color: "#cccccc" },
-  { name: "RETURN BEGINS", ts: 1744029000, icon: "↩", color: "#ffaa00" },
-  { name: "PREDICTION END", ts: 1744328400, icon: "⏹", color: "#666666" },
+  { name: "LAUNCH",         ts: 1743559200, color: "#00ff88", yOff: -30 },
+  { name: "TLI BURN",       ts: 1743629400, color: "#ff8800", yOff: 20 },
+  { name: "LUNAR CLOSEST",  ts: 1743980400, color: "#ffffff", yOff: -30 },
+  { name: "RETURN BEGINS",  ts: 1744029000, color: "#ffaa00", yOff: 20 },
+  { name: "PREDICTION END", ts: 1744328400, color: "#666666", yOff: -30 },
 ];
 
 // ── State ──
@@ -74,20 +76,13 @@ const viewer = new Viewer("cesium-container", {
   skyAtmosphere: false,
 });
 
-// Custom NASA Deep Star Maps skybox (Gaia/Tycho catalog)
+// Programmatic sharp-point starfield (crisp at any zoom)
 try {
   viewer.scene.skyBox = new SkyBox({
-    sources: {
-      positiveX: "/skybox/px.jpg",
-      negativeX: "/skybox/nx.jpg",
-      positiveY: "/skybox/py.jpg",
-      negativeY: "/skybox/ny.jpg",
-      positiveZ: "/skybox/pz.jpg",
-      negativeZ: "/skybox/nz.jpg",
-    },
+    sources: createStarfieldSkyboxSources(2048, 4000),
   });
 } catch (e) {
-  console.warn("[SKYBOX] Failed to load custom skybox:", e);
+  console.warn("[SKYBOX] Failed:", e);
 }
 
 viewer.scene.globe.enableLighting = true;
@@ -310,19 +305,19 @@ function addMissionEventMarkers(orionData, moonData) {
         outlineWidth: 2,
       },
       label: {
-        text: `${evt.icon} ${evt.name}`,
-        font: "bold 16px monospace",
+        text: evt.name,
+        font: "bold 14px monospace",
         fillColor: Color.fromCssColorString(evt.color),
         style: LabelStyle.FILL_AND_OUTLINE,
         outlineColor: Color.BLACK,
-        outlineWidth: 4,
-        verticalOrigin: VerticalOrigin.BOTTOM,
+        outlineWidth: 3,
+        verticalOrigin: VerticalOrigin.CENTER,
         horizontalOrigin: HorizontalOrigin.LEFT,
-        pixelOffset: new Cartesian2(14, -6),
-        scaleByDistance: new NearFarScalar(1e6, 1.2, 1e9, 0.5),
+        pixelOffset: new Cartesian2(16, evt.yOff || 0),
+        scaleByDistance: new NearFarScalar(1e6, 1.0, 1e9, 0.5),
         showBackground: true,
-        backgroundColor: Color.fromCssColorString("rgba(0,0,0,0.6)"),
-        backgroundPadding: new Cartesian2(6, 4),
+        backgroundColor: Color.fromCssColorString("rgba(0,0,0,0.7)"),
+        backgroundPadding: new Cartesian2(6, 3),
       },
     });
   }
