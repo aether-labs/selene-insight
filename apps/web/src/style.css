@@ -8,7 +8,7 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #000; }
 
 /* ── Cesium animation + timeline ── */
 .cesium-viewer-animationContainer {
-  bottom: 44px !important;
+  bottom: 80px !important;
   left: 310px !important;
   transform: scale(1.2);
   transform-origin: bottom left;

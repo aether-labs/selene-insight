@@ -92,8 +92,8 @@ try {
 
 viewer.scene.globe.enableLighting = true;
 
-// Sun lighting
-viewer.scene.globe.enableLighting = true;
+// Retina/HiDPI: render at full device pixel ratio for sharp stars/labels
+viewer.resolutionScale = window.devicePixelRatio || 1;
 
 viewer.camera.setView({
   destination: Cartesian3.fromDegrees(20, 30, 800_000_000),
@@ -304,22 +304,25 @@ function addMissionEventMarkers(orionData, moonData) {
       name: evt.name,
       position: pos,
       point: {
-        pixelSize: 8,
+        pixelSize: 12,
         color: Color.fromCssColorString(evt.color),
-        outlineColor: Color.BLACK,
-        outlineWidth: 1,
+        outlineColor: Color.WHITE,
+        outlineWidth: 2,
       },
       label: {
         text: `${evt.icon} ${evt.name}`,
-        font: "bold 13px monospace",
+        font: "bold 16px monospace",
         fillColor: Color.fromCssColorString(evt.color),
         style: LabelStyle.FILL_AND_OUTLINE,
         outlineColor: Color.BLACK,
-        outlineWidth: 3,
-        verticalOrigin: VerticalOrigin.TOP,
+        outlineWidth: 4,
+        verticalOrigin: VerticalOrigin.BOTTOM,
         horizontalOrigin: HorizontalOrigin.LEFT,
-        pixelOffset: new Cartesian2(10, 0),
-        scaleByDistance: new NearFarScalar(1e6, 1.0, 8e8, 0.4),
+        pixelOffset: new Cartesian2(14, -6),
+        scaleByDistance: new NearFarScalar(1e6, 1.2, 1e9, 0.5),
+        showBackground: true,
+        backgroundColor: Color.fromCssColorString("rgba(0,0,0,0.6)"),
+        backgroundPadding: new Cartesian2(6, 4),
       },
     });
   }
