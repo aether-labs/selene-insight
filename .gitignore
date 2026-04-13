@@ -10,3 +10,7 @@ uv.lock
 data/*.db
 data/*.db-wal
 data/*.db-shm
+*.png
+*.jpg
+!apps/web/public/skybox/*.jpg
+backups/*.db
