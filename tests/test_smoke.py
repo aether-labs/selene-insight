@@ -34,13 +34,15 @@ SAMPLE_TLES = [
 def test_store_crud():
     store, db = _make_store()
     n = store.upsert_tles(SAMPLE_TLES)
-    assert n >= 1
+    assert n == 2
     assert store.stats["satellites"] == 2
     assert store.stats["tle_records"] == 2
 
-    # Dedup
+    # Dedup: re-inserting the same TLEs must return 0 new rows (regression
+    # guard for the old conn.total_changes bug that counted every iteration).
     n2 = store.upsert_tles(SAMPLE_TLES)
-    assert store.stats["tle_records"] == 2  # no new rows
+    assert n2 == 0
+    assert store.stats["tle_records"] == 2
 
     latest = store.get_latest_tles()
     assert len(latest) == 2
@@ -57,10 +59,131 @@ def test_store_anomaly():
     store.insert_anomaly({
         "norad_id": 44714, "anomaly_type": "altitude_change",
         "altitude_before_km": 550, "altitude_after_km": 540,
+        "cause": "maneuver", "confidence": 0.8, "classified_by": "delta_v_rule",
     })
     anomalies = store.get_anomalies()
     assert len(anomalies) == 1
     assert anomalies[0]["anomaly_type"] == "altitude_change"
+    assert anomalies[0]["cause"] == "maneuver"
+    assert anomalies[0]["confidence"] == 0.8
+    assert anomalies[0]["classified_by"] == "delta_v_rule"
+    os.unlink(db)
+
+
+def test_store_fetch_log():
+    store, db = _make_store()
+    store.log_fetch(
+        status="ok", http_bytes=12345, parsed_count=100,
+        new_tle_count=42, parse_errors=0, duration_ms=830,
+        raw_archive_path="data/raw/20260412/celestrak-20260412-120000.tle.gz",
+    )
+    store.log_fetch(
+        status="error", duration_ms=5000,
+        error_msg="ReadTimeout: timed out",
+    )
+    log = store.get_fetch_log()
+    assert len(log) == 2
+    # Newest first
+    assert log[0]["status"] == "error"
+    assert log[0]["error_msg"].startswith("ReadTimeout")
+    assert log[1]["status"] == "ok"
+    assert log[1]["new_tle_count"] == 42
+    assert store.stats["fetches"] == 2
+    os.unlink(db)
+
+
+def test_store_migration_idempotent():
+    """Running _init_db twice on the same file must not error and must preserve data."""
+    from services.telemetry.store import StarlinkStore, SCHEMA_VERSION
+    import sqlite3
+
+    store, db = _make_store()
+    store.upsert_tles(SAMPLE_TLES)
+    store.log_fetch(status="ok", parsed_count=2, new_tle_count=2)
+
+    # Re-open the same DB — _migrate() must be a no-op on already-current schema.
+    store2 = StarlinkStore(db)
+    assert store2.stats["tle_records"] == 2
+    assert store2.stats["fetches"] == 1
+
+    # PRAGMA user_version should equal SCHEMA_VERSION.
+    conn = sqlite3.connect(db)
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    conn.close()
+    assert version == SCHEMA_VERSION
+
+    os.unlink(db)
+
+
+def test_store_migration_from_v1():
+    """A v1 DB (no user_version, no fetch_log, no cause column) must migrate forward."""
+    from services.telemetry.store import StarlinkStore, SCHEMA_VERSION
+    import sqlite3
+
+    db = tempfile.mktemp(suffix=".db")
+    # Hand-build a v1 schema without fetch_log / cause.
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE tle (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            norad_id INTEGER NOT NULL,
+            epoch_jd REAL NOT NULL,
+            fetched_at REAL NOT NULL,
+            line1 TEXT NOT NULL,
+            line2 TEXT NOT NULL,
+            inclination REAL,
+            mean_motion REAL,
+            eccentricity REAL,
+            UNIQUE(norad_id, epoch_jd)
+        );
+        CREATE TABLE satellite (
+            norad_id INTEGER PRIMARY KEY,
+            name TEXT,
+            intl_designator TEXT,
+            shell_km REAL,
+            launch_group TEXT,
+            first_seen REAL,
+            last_seen REAL,
+            status TEXT DEFAULT 'active'
+        );
+        CREATE TABLE anomaly (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            norad_id INTEGER NOT NULL,
+            detected_at REAL NOT NULL,
+            anomaly_type TEXT NOT NULL,
+            details TEXT,
+            altitude_before_km REAL,
+            altitude_after_km REAL
+        );
+    """)
+    conn.execute(
+        "INSERT INTO tle (norad_id, epoch_jd, fetched_at, line1, line2) VALUES (?, ?, ?, ?, ?)",
+        (44714, 2460400.5, time.time(), "line1", "line2"),
+    )
+    conn.commit()
+    conn.close()
+
+    # Opening via StarlinkStore should migrate forward.
+    store = StarlinkStore(db)
+    assert store.stats["tle_records"] == 1
+    assert store.stats["fetches"] == 0
+
+    # fetch_log must exist and be writable.
+    store.log_fetch(status="ok", parsed_count=1, new_tle_count=0)
+    assert store.stats["fetches"] == 1
+
+    # anomaly.cause column must exist.
+    store.insert_anomaly({
+        "norad_id": 44714, "anomaly_type": "decay", "cause": "natural_decay",
+    })
+    anoms = store.get_anomalies()
+    assert anoms[0]["cause"] == "natural_decay"
+
+    conn = sqlite3.connect(db)
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    conn.close()
+    assert version == SCHEMA_VERSION
+
     os.unlink(db)
 
 
@@ -110,11 +233,40 @@ STARLINK-1012
 1 44718C 19074F   26102.82965278 -.00009195  00000+0 -27482-3 0  1020
 2 44718  53.1593  19.8308 0003906 134.6049 336.9563 15.34025274    15"""
 
-    tles = parse_tle_text(text)
+    tles, errors = parse_tle_text(text)
     assert len(tles) == 2
+    assert errors == 0
     assert tles[0]["norad_id"] == 44714
     assert tles[0]["name"] == "STARLINK-1008"
     assert tles[0]["inclination"] > 50
+
+
+def test_tle_parser_counts_errors():
+    """Malformed triplets must be counted, not silently dropped."""
+    from services.telemetry.tle_fetcher import parse_tle_text
+
+    text = """STARLINK-1008
+1 44714C 19074B   26102.88173611  .00004936  00000+0  14452-3 0  1023
+2 44714  53.1552  19.3277 0003480 144.5700 243.9067 15.34670756    14
+GARBAGE-SAT
+NOT-A-TLE-LINE
+ALSO-NOT-A-TLE"""
+
+    tles, errors = parse_tle_text(text)
+    assert len(tles) == 1
+    assert errors >= 1
+
+
+def test_archive_raw(tmp_path):
+    from services.telemetry.tle_fetcher import archive_raw
+    import gzip
+
+    path = archive_raw("STARLINK-1008\nline1\nline2\n", raw_dir=tmp_path)
+    assert path.exists()
+    assert path.suffix == ".gz"
+    # Round-trip: file must be gzipped and contain the original text.
+    with gzip.open(path, "rt", encoding="utf-8") as f:
+        assert "STARLINK-1008" in f.read()
 
 
 def test_orbital_analyzer():
@@ -130,4 +282,4 @@ def test_orbital_analyzer():
 
 def test_api_imports():
     from services.api.main import app
-    assert app.title == "Selene-Insight API"
+    assert app.title == "ArgusOrb API"

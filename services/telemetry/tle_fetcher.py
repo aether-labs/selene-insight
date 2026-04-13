@@ -1,17 +1,20 @@
 """TLE Fetcher — pulls Starlink TLEs from Celestrak.
 
 Runs every 8 hours. Parses TLE triplets, extracts orbital parameters,
-classifies orbital shell, stores in SQLite.
+classifies orbital shell, stores in SQLite, archives raw response to disk,
+and records every attempt (success or failure) in fetch_log.
 """
 
 from __future__ import annotations
 
 import asyncio
+import gzip
 import math
-import re
-import signal
+import os
 import sys
 import time
+from datetime import datetime, timezone
+from pathlib import Path
 
 import httpx
 
@@ -22,6 +25,7 @@ except ImportError:
 
 CELESTRAK_URL = "https://celestrak.org/NORAD/elements/supplemental/sup-gp.php?FILE=starlink&FORMAT=tle"
 FETCH_INTERVAL = 8 * 3600  # 8 hours
+RAW_DIR = Path(os.environ.get("ARGUS_RAW_DIR", "data/raw"))
 
 # Earth constants for shell classification
 MU_EARTH = 3.986004418e14  # m^3/s^2
@@ -52,10 +56,14 @@ def classify_shell(alt_km: float) -> float:
     return round(alt_km / 10) * 10  # round to nearest 10
 
 
-def parse_tle_text(text: str) -> list[dict]:
-    """Parse Celestrak TLE text (name, line1, line2 triplets)."""
+def parse_tle_text(text: str) -> tuple[list[dict], int]:
+    """Parse Celestrak TLE text (name, line1, line2 triplets).
+
+    Returns (parsed_tles, error_count). Malformed triplets are counted, not raised.
+    """
     lines = [l.strip().replace("\r", "") for l in text.strip().split("\n") if l.strip()]
-    results = []
+    results: list[dict] = []
+    errors = 0
 
     i = 0
     while i + 2 < len(lines):
@@ -63,8 +71,8 @@ def parse_tle_text(text: str) -> list[dict]:
         line1 = lines[i + 1]
         line2 = lines[i + 2]
 
-        # Validate TLE format
         if not line1.startswith("1 ") or not line2.startswith("2 "):
+            errors += 1
             i += 1
             continue
 
@@ -72,27 +80,19 @@ def parse_tle_text(text: str) -> list[dict]:
             norad_id = int(line1[2:7].strip())
             intl_des = line1[9:17].strip()
 
-            # Epoch: year (2-digit) + day of year (fractional)
             epoch_year = int(line1[18:20])
             epoch_day = float(line1[20:32])
-            if epoch_year >= 57:
-                full_year = 1900 + epoch_year
-            else:
-                full_year = 2000 + epoch_year
-            # Convert to Julian Date
+            full_year = 1900 + epoch_year if epoch_year >= 57 else 2000 + epoch_year
             from sgp4.api import jday
             jan1_jd = jday(full_year, 1, 1, 0, 0, 0)[0]
             epoch_jd = jan1_jd + epoch_day - 1
 
-            # Orbital elements from line 2
             inclination = float(line2[8:16].strip())
             eccentricity = float("0." + line2[26:33].strip())
             mean_motion = float(line2[52:63].strip())
 
             alt_km = mean_motion_to_alt_km(mean_motion)
             shell_km = classify_shell(alt_km)
-
-            # Launch group from international designator
             launch_group = intl_des[:8] if intl_des else ""
 
             results.append({
@@ -109,19 +109,34 @@ def parse_tle_text(text: str) -> list[dict]:
                 "launch_group": launch_group,
                 "alt_km": alt_km,
             })
-        except (ValueError, IndexError) as e:
-            pass  # skip malformed TLEs
+        except (ValueError, IndexError):
+            errors += 1
 
         i += 3
 
-    return results
+    return results, errors
+
+
+def archive_raw(text: str, raw_dir: Path = RAW_DIR) -> Path:
+    """Write raw Celestrak response to data/raw/YYYYMMDD/celestrak-TS.tle.gz.
+
+    This is our 'never lose an update' insurance — if parsing has bugs or
+    Celestrak changes format, we can replay history from these files.
+    """
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    day_dir = raw_dir / ts[:8]
+    day_dir.mkdir(parents=True, exist_ok=True)
+    path = day_dir / f"celestrak-{ts}.tle.gz"
+    with gzip.open(path, "wt", encoding="utf-8") as f:
+        f.write(text)
+    return path
 
 
 async def fetch_celestrak() -> str:
     """Fetch TLE text from Celestrak."""
     async with httpx.AsyncClient(timeout=30, verify=True) as client:
         resp = await client.get(CELESTRAK_URL, headers={
-            "User-Agent": "selene-insight/0.2 (starlink-tracker)",
+            "User-Agent": "argusorb/0.2 (starlink-tracker)",
         })
         resp.raise_for_status()
         return resp.text
@@ -132,36 +147,57 @@ async def run_tle_fetcher(
     on_complete=None,
     interval: int = FETCH_INTERVAL,
 ) -> None:
-    """Fetch TLEs periodically and store in SQLite."""
-    print(f"[TLE] Fetcher starting (interval={interval}s)")
+    """Fetch TLEs periodically, archive raw, store parsed, log the attempt."""
+    print(f"[TLE] Fetcher starting (interval={interval}s, raw_dir={RAW_DIR})")
 
     cycle = 0
     while True:
         cycle += 1
+        t_start = time.perf_counter()
+        status = "ok"
+        error_msg: str | None = None
+        archive_path: str | None = None
+        text = ""
+        tles: list[dict] = []
+        parse_errors = 0
+        new_count = 0
+
         try:
-            t0 = time.perf_counter()
             text = await fetch_celestrak()
-            tles = parse_tle_text(text)
-            elapsed_fetch = time.perf_counter() - t0
-
-            t1 = time.perf_counter()
+            archive_path = str(archive_raw(text))
+            tles, parse_errors = parse_tle_text(text)
             new_count = store.upsert_tles(tles)
-            elapsed_store = time.perf_counter() - t1
 
+            elapsed_ms = int((time.perf_counter() - t_start) * 1000)
             print(
-                f"[TLE][{cycle:04d}] Fetched {len(tles)} satellites "
-                f"({new_count} new TLEs) in {elapsed_fetch:.1f}s fetch + "
-                f"{elapsed_store:.1f}s store"
+                f"[TLE][{cycle:04d}] ok: {len(tles)} parsed "
+                f"({new_count} new, {parse_errors} errors) in {elapsed_ms}ms"
             )
 
             if on_complete:
                 on_complete(len(tles), new_count)
 
         except Exception as e:
-            print(f"[TLE][{cycle:04d}] Error: {e}", file=sys.stderr)
+            status = "error"
+            error_msg = f"{type(e).__name__}: {e}"
+            elapsed_ms = int((time.perf_counter() - t_start) * 1000)
+            print(f"[TLE][{cycle:04d}] {error_msg}", file=sys.stderr)
+
+        try:
+            store.log_fetch(
+                status=status,
+                http_bytes=len(text.encode("utf-8")) if text else 0,
+                parsed_count=len(tles),
+                new_tle_count=new_count,
+                parse_errors=parse_errors,
+                duration_ms=elapsed_ms,
+                error_msg=error_msg,
+                raw_archive_path=archive_path,
+            )
+        except Exception as e:
+            print(f"[TLE][{cycle:04d}] fetch_log write failed: {e}", file=sys.stderr)
 
         if cycle == 1:
-            # First fetch: short wait then continue
             await asyncio.sleep(10)
         else:
             await asyncio.sleep(interval)

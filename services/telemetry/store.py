@@ -1,25 +1,28 @@
 """SQLite-backed persistent store for Starlink TLE data.
 
-Three tables:
+Tables:
 - tle: every TLE update, deduplicated by (norad_id, epoch_jd)
 - satellite: metadata, shell classification, status
-- anomaly: detected orbital events
+- anomaly: detected orbital events (with cause labels)
+- fetch_log: audit trail of every Celestrak fetch attempt
 
 This is the data moat — every TLE ever seen is stored permanently.
+Schema is versioned via PRAGMA user_version and migrated forward.
 """
 
 from __future__ import annotations
 
-import json
 import os
 import sqlite3
 import threading
 import time
 from pathlib import Path
 
-DB_PATH = os.environ.get("SELENE_DB_PATH", "data/starlink.db")
+DB_PATH = os.environ.get("ARGUS_DB_PATH", "data/starlink.db")
 
-_SCHEMA = """
+SCHEMA_VERSION = 2
+
+_SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS tle (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     norad_id INTEGER NOT NULL,
@@ -59,6 +62,28 @@ CREATE TABLE IF NOT EXISTS anomaly (
 CREATE INDEX IF NOT EXISTS idx_anomaly_time ON anomaly(detected_at DESC);
 """
 
+_SCHEMA_V2 = """
+CREATE TABLE IF NOT EXISTS fetch_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fetched_at REAL NOT NULL,
+    status TEXT NOT NULL,
+    http_bytes INTEGER,
+    parsed_count INTEGER,
+    new_tle_count INTEGER,
+    parse_errors INTEGER,
+    duration_ms INTEGER,
+    error_msg TEXT,
+    raw_archive_path TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_fetch_log_time ON fetch_log(fetched_at DESC);
+"""
+
+_ANOMALY_V2_COLUMNS = [
+    ("cause", "TEXT"),
+    ("confidence", "REAL"),
+    ("classified_by", "TEXT"),
+]
+
 
 class StarlinkStore:
     """Thread-safe SQLite store for Starlink constellation data."""
@@ -79,38 +104,52 @@ class StarlinkStore:
     def _init_db(self) -> None:
         with self._lock:
             conn = self._get_conn()
-            conn.executescript(_SCHEMA)
-            conn.close()
+            try:
+                self._migrate(conn)
+            finally:
+                conn.close()
+
+    def _migrate(self, conn: sqlite3.Connection) -> None:
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+
+        if version < 1:
+            conn.executescript(_SCHEMA_V1)
+
+        if version < 2:
+            conn.executescript(_SCHEMA_V2)
+            for col, col_type in _ANOMALY_V2_COLUMNS:
+                try:
+                    conn.execute(f"ALTER TABLE anomaly ADD COLUMN {col} {col_type}")
+                except sqlite3.OperationalError:
+                    pass  # column already exists
+
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        conn.commit()
 
     # ── TLE operations ──
 
     def upsert_tles(self, tles: list[dict]) -> int:
-        """Insert TLEs, skipping duplicates. Returns count of new inserts."""
+        """Insert TLEs, skipping duplicates. Returns count of genuinely new rows."""
         now = time.time()
         new_count = 0
         with self._lock:
             conn = self._get_conn()
             for t in tles:
-                try:
-                    conn.execute(
-                        """INSERT OR IGNORE INTO tle
-                           (norad_id, epoch_jd, fetched_at, line1, line2,
-                            inclination, mean_motion, eccentricity)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                        (
-                            t["norad_id"], t["epoch_jd"], now,
-                            t["line1"], t["line2"],
-                            t.get("inclination"), t.get("mean_motion"),
-                            t.get("eccentricity"),
-                        ),
-                    )
-                    if conn.total_changes:
-                        new_count += 1
-                except sqlite3.IntegrityError:
-                    pass
-            conn.commit()
+                cursor = conn.execute(
+                    """INSERT OR IGNORE INTO tle
+                       (norad_id, epoch_jd, fetched_at, line1, line2,
+                        inclination, mean_motion, eccentricity)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        t["norad_id"], t["epoch_jd"], now,
+                        t["line1"], t["line2"],
+                        t.get("inclination"), t.get("mean_motion"),
+                        t.get("eccentricity"),
+                    ),
+                )
+                if cursor.rowcount > 0:
+                    new_count += 1
 
-            # Update satellite metadata
             for t in tles:
                 conn.execute(
                     """INSERT INTO satellite (norad_id, name, intl_designator,
@@ -179,13 +218,19 @@ class StarlinkStore:
             conn.execute(
                 """INSERT INTO anomaly
                    (norad_id, detected_at, anomaly_type, details,
-                    altitude_before_km, altitude_after_km)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                    altitude_before_km, altitude_after_km,
+                    cause, confidence, classified_by)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    anomaly["norad_id"], anomaly.get("detected_at", time.time()),
-                    anomaly["anomaly_type"], anomaly.get("details", ""),
+                    anomaly["norad_id"],
+                    anomaly.get("detected_at", time.time()),
+                    anomaly["anomaly_type"],
+                    anomaly.get("details", ""),
                     anomaly.get("altitude_before_km"),
                     anomaly.get("altitude_after_km"),
+                    anomaly.get("cause"),
+                    anomaly.get("confidence"),
+                    anomaly.get("classified_by"),
                 ),
             )
             conn.commit()
@@ -203,6 +248,50 @@ class StarlinkStore:
         conn.close()
         return [dict(r) for r in rows]
 
+    # ── Fetch log ──
+
+    def log_fetch(
+        self,
+        *,
+        status: str,
+        http_bytes: int = 0,
+        parsed_count: int = 0,
+        new_tle_count: int = 0,
+        parse_errors: int = 0,
+        duration_ms: int = 0,
+        error_msg: str | None = None,
+        raw_archive_path: str | None = None,
+        fetched_at: float | None = None,
+    ) -> int:
+        """Record a Celestrak fetch attempt. Returns the fetch_log row id."""
+        with self._lock:
+            conn = self._get_conn()
+            cursor = conn.execute(
+                """INSERT INTO fetch_log
+                   (fetched_at, status, http_bytes, parsed_count, new_tle_count,
+                    parse_errors, duration_ms, error_msg, raw_archive_path)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    fetched_at if fetched_at is not None else time.time(),
+                    status, http_bytes, parsed_count, new_tle_count,
+                    parse_errors, duration_ms, error_msg, raw_archive_path,
+                ),
+            )
+            row_id = cursor.lastrowid
+            conn.commit()
+            conn.close()
+        return row_id
+
+    def get_fetch_log(self, limit: int = 50) -> list[dict]:
+        """Get recent fetch attempts, newest first."""
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT * FROM fetch_log ORDER BY fetched_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
     # ── Stats ──
 
     @property
@@ -211,9 +300,11 @@ class StarlinkStore:
         sat_count = conn.execute("SELECT COUNT(*) FROM satellite").fetchone()[0]
         tle_count = conn.execute("SELECT COUNT(*) FROM tle").fetchone()[0]
         anomaly_count = conn.execute("SELECT COUNT(*) FROM anomaly").fetchone()[0]
+        fetch_count = conn.execute("SELECT COUNT(*) FROM fetch_log").fetchone()[0]
         conn.close()
         return {
             "satellites": sat_count,
             "tle_records": tle_count,
             "anomalies": anomaly_count,
+            "fetches": fetch_count,
         }
