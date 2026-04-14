@@ -1,4 +1,4 @@
-"""Selene-Insight API — Starlink constellation tracking.
+"""ArgusOrb API — Starlink constellation tracking.
 
 REST + WebSocket gateway for satellite positions, anomalies, and metadata.
 """
@@ -41,13 +41,13 @@ def update_position_cache() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    print("[API] Selene-Insight Starlink API started")
+    print("[API] ArgusOrb Starlink API started")
     yield
     print("[API] Shutting down")
 
 
 app = FastAPI(
-    title="Selene-Insight API",
+    title="ArgusOrb API",
     description="Starlink constellation tracking and space situational awareness",
     version="0.2.0",
     lifespan=lifespan,

@@ -1,5 +1,5 @@
 [project]
-name = "selene-insight"
+name = "argusorb"
 version = "0.2.0"
 description = "Starlink constellation tracking and space situational awareness platform"
 requires-python = ">=3.11"
