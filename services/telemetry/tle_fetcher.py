@@ -66,6 +66,47 @@ def classify_shell(alt_km: float) -> float:
     return round(alt_km / 10) * 10  # round to nearest 10
 
 
+def _parse_tle_float(s: str) -> float:
+    """Parse TLE's compact float format used by B* and 2nd derivative fields.
+
+    The format packs a signed mantissa with an implied leading decimal point
+    plus a signed single-digit exponent into 8 characters. Examples from the
+    wild:
+
+        ' 14452-3' -> 0.14452 × 10^-3 =  1.4452e-4
+        '-27482-3' -> -0.27482 × 10^-3 = -2.7482e-4
+        ' 00000+0' -> 0.0
+        '+12345-5' -> 0.12345 × 10^-5 =  1.2345e-6
+
+    The last two characters are always [+-][0-9] (exponent sign + digit).
+    The remaining prefix is the mantissa, with an implied "0." inserted
+    after its leading sign (or at the front if unsigned).
+
+    Falls back to plain float() when the last two chars are not a signed
+    digit, so the same helper works for TLE fields that use a normal
+    decimal representation (like the 1st derivative of mean motion).
+    """
+    s = s.strip()
+    if not s:
+        return 0.0
+
+    if len(s) >= 2 and s[-2] in "+-" and s[-1].isdigit():
+        exp = int(s[-2:])
+        mantissa_str = s[:-2]
+    else:
+        return float(s)
+
+    if not mantissa_str:
+        return 0.0
+    if mantissa_str[0] in "+-":
+        sign = mantissa_str[0]
+        digits = mantissa_str[1:]
+        mantissa = float(f"{sign}0.{digits}") if digits else 0.0
+    else:
+        mantissa = float(f"0.{mantissa_str}")
+    return mantissa * (10 ** exp)
+
+
 def parse_tle_text(text: str) -> tuple[list[dict], int]:
     """Parse Celestrak TLE text (name, line1, line2 triplets) with cleaning.
 
@@ -124,6 +165,14 @@ def parse_tle_text(text: str) -> tuple[list[dict], int]:
             eccentricity = float("0." + line2[26:33].strip())
             mean_motion = float(line2[52:63].strip())
 
+            # B* drag term: TLE line 1 columns 54-61 (0-indexed 53:61).
+            # This is the only field that lets downstream classifiers
+            # distinguish "atmospheric anomaly" from "commanded maneuver" —
+            # see argus-internal/design/STRATEGY.md. Persisted unvalidated
+            # for now; range bounds will be set after we have a production
+            # distribution to calibrate against.
+            bstar = _parse_tle_float(line1[53:61])
+
             alt_km = mean_motion_to_alt_km(mean_motion)
             shell_km = classify_shell(alt_km)
             launch_group = intl_des[:8] if intl_des else ""
@@ -137,6 +186,7 @@ def parse_tle_text(text: str) -> tuple[list[dict], int]:
                 "inclination": inclination,
                 "mean_motion": mean_motion,
                 "eccentricity": eccentricity,
+                "bstar": bstar,
                 "intl_designator": intl_des,
                 "shell_km": shell_km,
                 "launch_group": launch_group,

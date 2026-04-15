@@ -24,7 +24,7 @@ from pathlib import Path
 
 DB_PATH = os.environ.get("ARGUS_DB_PATH", "data/starlink.db")
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS tle (
@@ -92,6 +92,15 @@ _ANOMALY_V3_COLUMNS = [
     ("source_epoch_jd", "REAL"),
 ]
 
+# Schema v4 — add B* drag term to tle. The B* coefficient is the only
+# TLE field that lets classifiers distinguish "atmospheric anomaly" from
+# "commanded maneuver", so persisting it is a prerequisite for any IMM-UKF
+# work. NULL for legacy rows pre-v4 — they can be backfilled by re-parsing
+# data/raw/*.tle.gz if needed.
+_TLE_V4_COLUMNS = [
+    ("bstar", "REAL"),
+]
+
 # Uniqueness semantics: one classifier can emit at most one label of a given
 # anomaly_type per TLE transition. Different classifiers (rule_v1 vs
 # imm_ukf_v1 vs human) can all label the same event — that's the A/B /
@@ -149,6 +158,13 @@ class StarlinkStore:
                     pass
             conn.executescript(_SCHEMA_V3)
 
+        if version < 4:
+            for col, col_type in _TLE_V4_COLUMNS:
+                try:
+                    conn.execute(f"ALTER TABLE tle ADD COLUMN {col} {col_type}")
+                except sqlite3.OperationalError:
+                    pass
+
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         conn.commit()
 
@@ -164,13 +180,13 @@ class StarlinkStore:
                 cursor = conn.execute(
                     """INSERT OR IGNORE INTO tle
                        (norad_id, epoch_jd, fetched_at, line1, line2,
-                        inclination, mean_motion, eccentricity)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        inclination, mean_motion, eccentricity, bstar)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         t["norad_id"], t["epoch_jd"], now,
                         t["line1"], t["line2"],
                         t.get("inclination"), t.get("mean_motion"),
-                        t.get("eccentricity"),
+                        t.get("eccentricity"), t.get("bstar"),
                     ),
                 )
                 if cursor.rowcount > 0:

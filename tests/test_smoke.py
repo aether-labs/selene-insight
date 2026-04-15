@@ -379,6 +379,165 @@ def test_validate_physics_rejects_altitude_inside_earth():
         assert reason == "altitude_range"
 
 
+def test_parse_tle_float_bstar_format():
+    """TLE's compact float format — implied decimal + signed exponent."""
+    import math
+    from services.telemetry.tle_fetcher import _parse_tle_float
+
+    close = lambda a, b: math.isclose(a, b, rel_tol=1e-12, abs_tol=1e-15)
+
+    # Unsigned positive mantissa with space sign char
+    assert close(_parse_tle_float(" 14452-3"), 0.14452e-3)
+    # Explicit negative mantissa
+    assert close(_parse_tle_float("-27482-3"), -0.27482e-3)
+    # Explicit positive mantissa
+    assert close(_parse_tle_float("+12345-5"), 0.12345e-5)
+    # Zero in both conventions
+    assert _parse_tle_float(" 00000+0") == 0.0
+    assert _parse_tle_float(" 00000-0") == 0.0
+    # Larger exponents
+    assert close(_parse_tle_float(" 99999-9"), 0.99999e-9)
+    assert close(_parse_tle_float(" 10000+0"), 0.1)  # 0.10000e0
+    # Empty input is 0
+    assert _parse_tle_float("") == 0.0
+    assert _parse_tle_float("    ") == 0.0
+
+
+def test_parse_tle_float_plain_decimal_fallback():
+    """Plain decimal (like 1st derivative of mean motion) uses float() fallback."""
+    import math
+    from services.telemetry.tle_fetcher import _parse_tle_float
+
+    close = lambda a, b: math.isclose(a, b, rel_tol=1e-12, abs_tol=1e-15)
+    assert close(_parse_tle_float(" .00004936"), 4.936e-5)
+    assert close(_parse_tle_float("-.00009195"), -9.195e-5)
+    assert _parse_tle_float(".5") == 0.5
+
+
+def test_parser_extracts_bstar():
+    """parse_tle_text must populate bstar in the returned dict."""
+    from services.telemetry.tle_fetcher import parse_tle_text
+
+    text = "\n".join([
+        "STARLINK-1008", VALID_TLE_1008_L1, VALID_TLE_1008_L2,
+        "STARLINK-1012",
+        "1 44718C 19074F   26102.82965278 -.00009195  00000+0 -27482-3 0  1020",
+        "2 44718  53.1593  19.8308 0003906 134.6049 336.9563 15.34025274    15",
+    ])
+    tles, errors = parse_tle_text(text)
+    assert len(tles) == 2
+    assert errors == 0
+
+    # 44714 has B* " 14452-3" → 1.4452e-4 (positive)
+    t1 = next(t for t in tles if t["norad_id"] == 44714)
+    assert abs(t1["bstar"] - 1.4452e-4) < 1e-10
+
+    # 44718 has B* "-27482-3" → -2.7482e-4 (negative — real NORAD fit)
+    t2 = next(t for t in tles if t["norad_id"] == 44718)
+    assert abs(t2["bstar"] - (-2.7482e-4)) < 1e-10
+
+
+def test_store_bstar_roundtrip():
+    """bstar must survive upsert_tles → get_satellite_history."""
+    store, db = _make_store()
+    sample = dict(SAMPLE_TLES[0])
+    sample["bstar"] = 1.4452e-4
+    store.upsert_tles([sample])
+
+    history = store.get_satellite_history(sample["norad_id"], limit=1)
+    assert len(history) == 1
+    assert abs(history[0]["bstar"] - 1.4452e-4) < 1e-10
+    os.unlink(db)
+
+
+def test_store_migration_v3_to_v4():
+    """A v3 DB (no tle.bstar) must migrate forward and accept bstar writes."""
+    from services.telemetry.store import StarlinkStore, SCHEMA_VERSION
+    import sqlite3
+
+    db = tempfile.mktemp(suffix=".db")
+    # Build a minimal v3-shape DB: tle table without bstar column.
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE tle (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            norad_id INTEGER NOT NULL,
+            epoch_jd REAL NOT NULL,
+            fetched_at REAL NOT NULL,
+            line1 TEXT NOT NULL,
+            line2 TEXT NOT NULL,
+            inclination REAL,
+            mean_motion REAL,
+            eccentricity REAL,
+            UNIQUE(norad_id, epoch_jd)
+        );
+        CREATE TABLE satellite (
+            norad_id INTEGER PRIMARY KEY,
+            name TEXT, intl_designator TEXT, shell_km REAL,
+            launch_group TEXT, first_seen REAL, last_seen REAL,
+            status TEXT DEFAULT 'active'
+        );
+        CREATE TABLE anomaly (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            norad_id INTEGER NOT NULL,
+            detected_at REAL NOT NULL,
+            anomaly_type TEXT NOT NULL,
+            details TEXT,
+            altitude_before_km REAL,
+            altitude_after_km REAL,
+            cause TEXT,
+            confidence REAL,
+            classified_by TEXT,
+            source_epoch_jd REAL
+        );
+        CREATE TABLE fetch_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fetched_at REAL NOT NULL,
+            status TEXT NOT NULL,
+            http_bytes INTEGER, parsed_count INTEGER, new_tle_count INTEGER,
+            parse_errors INTEGER, duration_ms INTEGER,
+            error_msg TEXT, raw_archive_path TEXT
+        );
+        PRAGMA user_version = 3;
+    """)
+    # Seed one legacy tle row (no bstar column yet).
+    conn.execute(
+        "INSERT INTO tle (norad_id, epoch_jd, fetched_at, line1, line2) VALUES (?, ?, ?, ?, ?)",
+        (44714, 2460400.5, time.time(), "line1", "line2"),
+    )
+    conn.commit()
+    conn.close()
+
+    # Opening via StarlinkStore should run the v3 → v4 migration.
+    store = StarlinkStore(db)
+    assert store.stats["tle_records"] == 1
+
+    conn = sqlite3.connect(db)
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    assert version == SCHEMA_VERSION
+
+    # bstar column exists and the legacy row has NULL for it.
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(tle)").fetchall()]
+    assert "bstar" in cols
+    row = conn.execute("SELECT bstar FROM tle WHERE norad_id = 44714").fetchone()
+    assert row[0] is None
+    conn.close()
+
+    # New writes with bstar work end-to-end.
+    new_tle = {
+        "norad_id": 44714, "epoch_jd": 2460401.0,
+        "line1": "x", "line2": "y", "name": "STARLINK-1008",
+        "inclination": 53.15, "mean_motion": 15.34, "eccentricity": 0.0003,
+        "bstar": 1.4452e-4,
+        "shell_km": 550, "intl_designator": "19074B", "launch_group": "19074",
+    }
+    store.upsert_tles([new_tle])
+    history = store.get_satellite_history(44714, limit=5)
+    assert any(abs((r.get("bstar") or 0) - 1.4452e-4) < 1e-10 for r in history)
+
+    os.unlink(db)
+
+
 def test_parse_tle_text_rejects_bad_checksum_end_to_end():
     """A TLE with corrupted checksum must not appear in the parsed results."""
     from services.telemetry.tle_fetcher import parse_tle_text
