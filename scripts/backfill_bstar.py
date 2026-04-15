@@ -2,18 +2,20 @@
 """One-shot backfill of tle.bstar for pre-v4 rows.
 
 Schema v4 added the bstar column to tle, but upsert_tles is INSERT OR
-IGNORE on (norad_id, epoch_jd) — legacy rows stay with bstar=NULL
-forever because their (norad_id, epoch_jd) keys already exist and new
-fetches are silently dropped.
+IGNORE on (norad_id, epoch_jd) — legacy rows never get updated because
+their keys already exist and fresh fetches are silently dropped.
 
 Fix: walk every row where bstar IS NULL, parse bstar from the stored
-line1 text using the same helper the fetcher uses, and UPDATE in place.
-Batched commits so a kill mid-run doesn't lose progress.
+line1 text, and UPDATE in place. Batched in 5k-row transactions so a
+mid-run kill doesn't lose progress, and safe to re-run (only touches
+NULL rows).
+
+The parse helper is inlined so the script is self-contained — no
+services.* imports — and can run on any Python 3 with stdlib sqlite3,
+including directly on the VPS host without going through docker.
 
 Usage:
-    python scripts/backfill_bstar.py [db_path]
-
-Safe to run multiple times — only touches rows where bstar IS NULL.
+    python3 scripts/backfill_bstar.py [db_path]
 """
 
 from __future__ import annotations
@@ -22,14 +24,32 @@ import os
 import sqlite3
 import sys
 import time
-from pathlib import Path
-
-# Make services.* importable when run from the repo root.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from services.telemetry.tle_fetcher import _parse_tle_float
 
 BATCH_SIZE = 5000
+
+
+def _parse_tle_float(s: str) -> float:
+    """TLE's compact float format: signed mantissa with implied decimal
+    point + trailing [+-]d exponent. Inlined from services.telemetry.tle_fetcher
+    to keep this script self-contained.
+    """
+    s = s.strip()
+    if not s:
+        return 0.0
+    if len(s) >= 2 and s[-2] in "+-" and s[-1].isdigit():
+        exp = int(s[-2:])
+        mantissa_str = s[:-2]
+    else:
+        return float(s)
+    if not mantissa_str:
+        return 0.0
+    if mantissa_str[0] in "+-":
+        sign = mantissa_str[0]
+        digits = mantissa_str[1:]
+        mantissa = float(f"{sign}0.{digits}") if digits else 0.0
+    else:
+        mantissa = float(f"0.{mantissa_str}")
+    return mantissa * (10 ** exp)
 
 
 def main(db_path: str) -> int:
