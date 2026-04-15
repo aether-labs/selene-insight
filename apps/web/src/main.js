@@ -1,5 +1,5 @@
 /**
- * Selene-Insight — Starlink Constellation 3D Tracker
+ * ArgusOrb — Starlink Constellation 3D Tracker
  *
  * Renders 10,000+ Starlink satellites on a CesiumJS globe
  * using PointPrimitiveCollection for GPU-accelerated performance.
