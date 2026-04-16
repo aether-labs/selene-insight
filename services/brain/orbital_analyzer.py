@@ -52,9 +52,15 @@ ECC_DELTA = 0.01              # eccentricity shift indicating burn
 # drag model shifted" events. Sign flips signal propulsion mode changes
 # (boost → coast or reverse). Magnitude jumps without sign change suggest
 # atmospheric density anomalies or attitude changes that alter cross-section.
-BSTAR_SIGN_FLIP_FLOOR = 1e-5   # both |old| and |new| must exceed this (avoid noise-band flips near zero)
-BSTAR_JUMP_RATIO = 0.5         # relative change > 50%
-BSTAR_JUMP_ABS_MIN = 5e-4      # absolute change must also exceed this (filters out tiny-B* noise)
+# B* thresholds — tuned against real Starlink data (2026-04-16 backfill).
+# Initial thresholds (1e-5 floor, 50% ratio, 5e-4 abs) produced 85k labels
+# across 10k sats — B* sign flips are NORMAL operational rhythm for an
+# actively-thrust constellation, not anomalies. Raised to catch only the
+# outlier events: simultaneous sign flip + large magnitude change, or
+# magnitude jumps well above the fleet median (~1e-3).
+BSTAR_SIGN_FLIP_FLOOR = 5e-3   # both |old| and |new| must be well above median (large-B* regime)
+BSTAR_JUMP_RATIO = 2.0         # relative change > 200% (not 50% — normal cycling is ~50%)
+BSTAR_JUMP_ABS_MIN = 5e-3      # absolute change must also be large (10× original threshold)
 
 
 def mean_motion_to_alt_km(mm: float) -> float:

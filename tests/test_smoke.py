@@ -607,12 +607,13 @@ def test_orbital_analyzer_bstar_sign_flip():
     from services.brain.orbital_analyzer import analyze_tle_pair
 
     # Small altitude change (within 10 km threshold), but B* flips sign.
+    # Both |B*| > 5e-3 (the raised floor — only large-B* regime sats).
     old = {"norad_id": 44714, "mean_motion": 15.340, "eccentricity": 0.000348,
            "epoch_jd": 2460400.0, "inclination": 53.15,
-           "bstar": 1.0e-3}  # positive = coast phase
+           "bstar": 1.0e-2}
     new = {"norad_id": 44714, "mean_motion": 15.341, "eccentricity": 0.000350,
            "epoch_jd": 2460401.0, "inclination": 53.15,
-           "bstar": -1.2e-3}  # negative = thrust phase
+           "bstar": -1.2e-2}
 
     anomaly = analyze_tle_pair(old, new)
     assert anomaly is not None
@@ -621,30 +622,33 @@ def test_orbital_analyzer_bstar_sign_flip():
     assert "propulsion mode change" in anomaly["details"]
 
 
-def test_orbital_analyzer_bstar_sign_flip_near_zero_ignored():
-    """B* sign flip near zero (|B*| < 1e-5) must NOT fire — that's noise."""
+def test_orbital_analyzer_bstar_sign_flip_below_floor_ignored():
+    """B* sign flip with |B*| below the raised floor (5e-3) must NOT fire."""
     from services.brain.orbital_analyzer import analyze_tle_pair
 
+    # Typical Starlink cycling — |B*| = 1e-3 is below the 5e-3 floor.
+    # This is normal operational rhythm, not an anomaly.
     old = {"norad_id": 44714, "mean_motion": 15.340, "eccentricity": 0.000348,
            "epoch_jd": 2460400.0, "inclination": 53.15,
-           "bstar": 5e-6}
+           "bstar": 1e-3}
     new = {"norad_id": 44714, "mean_motion": 15.341, "eccentricity": 0.000350,
            "epoch_jd": 2460401.0, "inclination": 53.15,
-           "bstar": -3e-6}
+           "bstar": -1.2e-3}
 
     assert analyze_tle_pair(old, new) is None
 
 
 def test_orbital_analyzer_bstar_magnitude_jump():
-    """Large B* jump without sign change → atmospheric_anomaly."""
+    """Large B* jump (>200% + >5e-3 absolute) → atmospheric_anomaly."""
     from services.brain.orbital_analyzer import analyze_tle_pair
 
+    # B* triples from 5e-3 to 1.6e-2: ratio = 220% > 200%, |Δ| = 1.1e-2 > 5e-3.
     old = {"norad_id": 44714, "mean_motion": 15.340, "eccentricity": 0.000348,
            "epoch_jd": 2460400.0, "inclination": 53.15,
-           "bstar": 1.0e-3}
+           "bstar": 5.0e-3}
     new = {"norad_id": 44714, "mean_motion": 15.341, "eccentricity": 0.000350,
            "epoch_jd": 2460401.0, "inclination": 53.15,
-           "bstar": 2.5e-3}  # +150% jump, |Δ| = 1.5e-3 > 5e-4 threshold
+           "bstar": 1.6e-2}
 
     anomaly = analyze_tle_pair(old, new)
     assert anomaly is not None
@@ -653,16 +657,18 @@ def test_orbital_analyzer_bstar_magnitude_jump():
     assert "%" in anomaly["details"]
 
 
-def test_orbital_analyzer_bstar_small_jump_ignored():
-    """B* jump too small in absolute terms → no flag even if ratio is high."""
+def test_orbital_analyzer_bstar_moderate_jump_ignored():
+    """B* jump at median range (50% change, ~1e-3 absolute) → no flag."""
     from services.brain.orbital_analyzer import analyze_tle_pair
 
+    # Normal Starlink cycling: 1e-3 to 1.5e-3 is only 50% and |Δ| = 5e-4.
+    # Both well below the raised thresholds (200% ratio, 5e-3 abs).
     old = {"norad_id": 44714, "mean_motion": 15.340, "eccentricity": 0.000348,
            "epoch_jd": 2460400.0, "inclination": 53.15,
-           "bstar": 1e-5}
+           "bstar": 1e-3}
     new = {"norad_id": 44714, "mean_motion": 15.341, "eccentricity": 0.000350,
            "epoch_jd": 2460401.0, "inclination": 53.15,
-           "bstar": 2e-5}  # 100% ratio but |Δ| = 1e-5 < 5e-4 abs threshold
+           "bstar": 1.5e-3}
 
     assert analyze_tle_pair(old, new) is None
 
