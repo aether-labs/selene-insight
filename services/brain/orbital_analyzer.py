@@ -18,6 +18,8 @@ Ruleset v1 (in precedence order):
   3. inclination_shift    — |Δincl| > INCLINATION_DELTA_DEG (rare, expensive)
   4. maneuver_candidate   — |Δalt| > MANEUVER_ALT_DELTA_KM
   5. eccentricity_change  — |Δecc| > ECC_DELTA
+  6. bstar_sign_flip      — B* sign changed (propulsion mode switch)
+  7. bstar_magnitude_jump — |ΔB*| large (atmospheric anomaly or drag model shift)
 
 Every anomaly row is tagged with:
   - cause           — one of {reentry, natural_decay, maneuver_candidate}
@@ -44,6 +46,15 @@ DECAY_DELTA_KM = 5.0          # persistent drop > this in LEO = decaying
 MANEUVER_ALT_DELTA_KM = 10.0  # Starlink station-keeping is << 1 km, so 10 km is clearly commanded
 INCLINATION_DELTA_DEG = 0.1   # TLE noise is ~0.01°, real plane change is very expensive
 ECC_DELTA = 0.01              # eccentricity shift indicating burn
+
+# B* rules — these fire only when rules 1-5 didn't already flag the pair,
+# so they catch the "nothing obvious changed in altitude/ecc/incl but the
+# drag model shifted" events. Sign flips signal propulsion mode changes
+# (boost → coast or reverse). Magnitude jumps without sign change suggest
+# atmospheric density anomalies or attitude changes that alter cross-section.
+BSTAR_SIGN_FLIP_FLOOR = 1e-5   # both |old| and |new| must exceed this (avoid noise-band flips near zero)
+BSTAR_JUMP_RATIO = 0.5         # relative change > 50%
+BSTAR_JUMP_ABS_MIN = 5e-4      # absolute change must also exceed this (filters out tiny-B* noise)
 
 
 def mean_motion_to_alt_km(mm: float) -> float:
@@ -168,6 +179,47 @@ def analyze_tle_pair(old: dict, new: dict) -> dict | None:
             ),
         }
 
+    # ── B* rules (fire only if rules 1-5 didn't match) ──
+
+    bstar_old = old.get("bstar")
+    bstar_new = new.get("bstar")
+
+    if bstar_old is not None and bstar_new is not None:
+        abs_old = abs(bstar_old)
+        abs_new = abs(bstar_new)
+        delta_bstar = abs(bstar_new - bstar_old)
+        denom = max(abs_old, BSTAR_SIGN_FLIP_FLOOR)
+
+        # 6. B* sign flip — propulsion mode switch (boost ↔ coast)
+        if (abs_old > BSTAR_SIGN_FLIP_FLOOR
+                and abs_new > BSTAR_SIGN_FLIP_FLOOR
+                and (bstar_old > 0) != (bstar_new > 0)):
+            return {
+                **base,
+                "anomaly_type": "bstar_sign_flip",
+                "cause": "maneuver_candidate",
+                "confidence": _confidence(delta_bstar, denom),
+                "details": (
+                    f"B* sign flipped ({bstar_old:+.3e}→{bstar_new:+.3e}) "
+                    f"in {dt_days:.1f} days — propulsion mode change"
+                ),
+            }
+
+        # 7. B* magnitude jump — atmospheric anomaly or drag model shift
+        if (delta_bstar > BSTAR_JUMP_ABS_MIN
+                and delta_bstar / denom > BSTAR_JUMP_RATIO):
+            return {
+                **base,
+                "anomaly_type": "bstar_anomaly",
+                "cause": "atmospheric_anomaly",
+                "confidence": _confidence(delta_bstar / denom, BSTAR_JUMP_RATIO),
+                "details": (
+                    f"B* jumped by {delta_bstar:.3e} "
+                    f"({bstar_old:+.3e}→{bstar_new:+.3e}, "
+                    f"{100*delta_bstar/denom:.0f}% change) in {dt_days:.1f} days"
+                ),
+            }
+
     return None
 
 
@@ -212,3 +264,49 @@ def analyze_constellation(store, since_ts: float | None = None) -> list[dict]:
             new_anomalies.append(anomaly)
 
     return new_anomalies
+
+
+def label_full_history(
+    store, *, batch_log_interval: int = 500, max_history: int = 1000
+) -> int:
+    """Run rule_v1 over ALL consecutive TLE pairs for EVERY satellite.
+
+    This is the backfill counterpart to analyze_constellation's incremental
+    (latest-2-only) pass. It walks each satellite's full stored history and
+    labels every adjacent pair. Idempotent via the unique index — previously
+    labeled pairs are silently skipped.
+
+    Intended to be run once after deploying new rules, so the anomaly table
+    reflects the full historical reach of the current ruleset rather than only
+    events that happened after deployment.
+
+    Returns total new labels written.
+    """
+    total_new = 0
+    now = time.time()
+    all_sats = store.get_latest_tles()
+
+    for i, sat in enumerate(all_sats):
+        norad_id = sat["norad_id"]
+        history = store.get_satellite_history(norad_id, limit=max_history)
+
+        for j in range(len(history) - 1):
+            new_tle, old_tle = history[j], history[j + 1]
+            anomaly = analyze_tle_pair(old_tle, new_tle)
+            if anomaly is None:
+                continue
+            anomaly["detected_at"] = now
+            if store.insert_anomaly(anomaly):
+                total_new += 1
+
+        if (i + 1) % batch_log_interval == 0:
+            print(
+                f"[backfill labels] {i+1}/{len(all_sats)} sats, "
+                f"{total_new} new labels so far"
+            )
+
+    print(
+        f"[backfill labels] done: {len(all_sats)} sats scanned, "
+        f"{total_new} new labels written"
+    )
+    return total_new

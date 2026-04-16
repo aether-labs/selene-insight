@@ -602,14 +602,100 @@ def test_orbital_analyzer_inclination_shift():
     assert anomaly["cause"] == "maneuver_candidate"
 
 
-def test_orbital_analyzer_no_false_positive():
-    """Station-keeping noise must not trigger any rule."""
+def test_orbital_analyzer_bstar_sign_flip():
+    """B* sign flip (boost → coast) must fire when rules 1-5 don't match."""
+    from services.brain.orbital_analyzer import analyze_tle_pair
+
+    # Small altitude change (within 10 km threshold), but B* flips sign.
+    old = {"norad_id": 44714, "mean_motion": 15.340, "eccentricity": 0.000348,
+           "epoch_jd": 2460400.0, "inclination": 53.15,
+           "bstar": 1.0e-3}  # positive = coast phase
+    new = {"norad_id": 44714, "mean_motion": 15.341, "eccentricity": 0.000350,
+           "epoch_jd": 2460401.0, "inclination": 53.15,
+           "bstar": -1.2e-3}  # negative = thrust phase
+
+    anomaly = analyze_tle_pair(old, new)
+    assert anomaly is not None
+    assert anomaly["anomaly_type"] == "bstar_sign_flip"
+    assert anomaly["cause"] == "maneuver_candidate"
+    assert "propulsion mode change" in anomaly["details"]
+
+
+def test_orbital_analyzer_bstar_sign_flip_near_zero_ignored():
+    """B* sign flip near zero (|B*| < 1e-5) must NOT fire — that's noise."""
     from services.brain.orbital_analyzer import analyze_tle_pair
 
     old = {"norad_id": 44714, "mean_motion": 15.340, "eccentricity": 0.000348,
-           "epoch_jd": 2460400.0, "inclination": 53.1552}
+           "epoch_jd": 2460400.0, "inclination": 53.15,
+           "bstar": 5e-6}
     new = {"norad_id": 44714, "mean_motion": 15.341, "eccentricity": 0.000350,
-           "epoch_jd": 2460401.0, "inclination": 53.1553}
+           "epoch_jd": 2460401.0, "inclination": 53.15,
+           "bstar": -3e-6}
+
+    assert analyze_tle_pair(old, new) is None
+
+
+def test_orbital_analyzer_bstar_magnitude_jump():
+    """Large B* jump without sign change → atmospheric_anomaly."""
+    from services.brain.orbital_analyzer import analyze_tle_pair
+
+    old = {"norad_id": 44714, "mean_motion": 15.340, "eccentricity": 0.000348,
+           "epoch_jd": 2460400.0, "inclination": 53.15,
+           "bstar": 1.0e-3}
+    new = {"norad_id": 44714, "mean_motion": 15.341, "eccentricity": 0.000350,
+           "epoch_jd": 2460401.0, "inclination": 53.15,
+           "bstar": 2.5e-3}  # +150% jump, |Δ| = 1.5e-3 > 5e-4 threshold
+
+    anomaly = analyze_tle_pair(old, new)
+    assert anomaly is not None
+    assert anomaly["anomaly_type"] == "bstar_anomaly"
+    assert anomaly["cause"] == "atmospheric_anomaly"
+    assert "%" in anomaly["details"]
+
+
+def test_orbital_analyzer_bstar_small_jump_ignored():
+    """B* jump too small in absolute terms → no flag even if ratio is high."""
+    from services.brain.orbital_analyzer import analyze_tle_pair
+
+    old = {"norad_id": 44714, "mean_motion": 15.340, "eccentricity": 0.000348,
+           "epoch_jd": 2460400.0, "inclination": 53.15,
+           "bstar": 1e-5}
+    new = {"norad_id": 44714, "mean_motion": 15.341, "eccentricity": 0.000350,
+           "epoch_jd": 2460401.0, "inclination": 53.15,
+           "bstar": 2e-5}  # 100% ratio but |Δ| = 1e-5 < 5e-4 abs threshold
+
+    assert analyze_tle_pair(old, new) is None
+
+
+def test_orbital_analyzer_altitude_takes_precedence_over_bstar():
+    """Rules 1-5 have higher precedence than B* rules 6-7."""
+    from services.brain.orbital_analyzer import analyze_tle_pair
+
+    # Both a 20 km altitude change AND a B* sign flip — altitude wins.
+    old = {"norad_id": 44714, "mean_motion": 15.34, "eccentricity": 0.0003,
+           "epoch_jd": 2460400.0, "inclination": 53.15,
+           "bstar": 1e-3}
+    new = {"norad_id": 44714, "mean_motion": 15.50, "eccentricity": 0.0003,
+           "epoch_jd": 2460401.0, "inclination": 53.15,
+           "bstar": -2e-3}
+
+    anomaly = analyze_tle_pair(old, new)
+    assert anomaly is not None
+    assert anomaly["anomaly_type"] in ("altitude_change", "deorbiting", "reentry")
+    # Should NOT be bstar_sign_flip because altitude rule fired first.
+    assert anomaly["anomaly_type"] != "bstar_sign_flip"
+
+
+def test_orbital_analyzer_no_false_positive():
+    """Station-keeping noise must not trigger any rule, including B* rules."""
+    from services.brain.orbital_analyzer import analyze_tle_pair
+
+    old = {"norad_id": 44714, "mean_motion": 15.340, "eccentricity": 0.000348,
+           "epoch_jd": 2460400.0, "inclination": 53.1552,
+           "bstar": 1.0e-3}
+    new = {"norad_id": 44714, "mean_motion": 15.341, "eccentricity": 0.000350,
+           "epoch_jd": 2460401.0, "inclination": 53.1553,
+           "bstar": 1.1e-3}  # 10% change, well below 50% threshold
 
     assert analyze_tle_pair(old, new) is None
 
