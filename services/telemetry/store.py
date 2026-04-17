@@ -24,7 +24,7 @@ from pathlib import Path
 
 DB_PATH = os.environ.get("ARGUS_DB_PATH", "data/starlink.db")
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS tle (
@@ -136,6 +136,27 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_anomaly_unique
 """
 
 
+# Schema v6 — SatNOGS RF observations for gap cross-validation.
+_SCHEMA_V6 = """
+CREATE TABLE IF NOT EXISTS satnogs_observation (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    observation_id INTEGER NOT NULL,
+    norad_id INTEGER NOT NULL,
+    start_ts TEXT NOT NULL,
+    end_ts TEXT,
+    ground_station INTEGER,
+    vetted_status TEXT,
+    frequency_hz INTEGER,
+    has_waterfall INTEGER DEFAULT 0,
+    has_audio INTEGER DEFAULT 0,
+    fetched_at REAL NOT NULL,
+    UNIQUE(observation_id)
+);
+CREATE INDEX IF NOT EXISTS idx_satnogs_norad ON satnogs_observation(norad_id, start_ts DESC);
+CREATE INDEX IF NOT EXISTS idx_satnogs_status ON satnogs_observation(vetted_status);
+"""
+
+
 class StarlinkStore:
     """Thread-safe SQLite store for Starlink constellation data."""
 
@@ -191,6 +212,9 @@ class StarlinkStore:
 
         if version < 5:
             conn.executescript(_SCHEMA_V5)
+
+        if version < 6:
+            conn.executescript(_SCHEMA_V6)
 
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         conn.commit()
@@ -568,6 +592,73 @@ class StarlinkStore:
             conn.commit()
             conn.close()
         return new_count
+
+    # ── SatNOGS observations ──
+
+    def upsert_satnogs_observations(self, observations: list[dict]) -> int:
+        """Insert SatNOGS observations. Returns count of new rows."""
+        now = time.time()
+        new_count = 0
+        with self._lock:
+            conn = self._get_conn()
+            for o in observations:
+                obs_id = o.get("observation_id")
+                if obs_id is None:
+                    continue
+                cursor = conn.execute(
+                    """INSERT OR IGNORE INTO satnogs_observation
+                       (observation_id, norad_id, start_ts, end_ts,
+                        ground_station, vetted_status, frequency_hz,
+                        has_waterfall, has_audio, fetched_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        obs_id,
+                        o.get("norad_id"),
+                        o.get("start_ts", ""),
+                        o.get("end_ts", ""),
+                        o.get("ground_station"),
+                        o.get("vetted_status", "unknown"),
+                        o.get("frequency_hz"),
+                        1 if o.get("has_waterfall") else 0,
+                        1 if o.get("has_audio") else 0,
+                        now,
+                    ),
+                )
+                if cursor.rowcount > 0:
+                    new_count += 1
+            conn.commit()
+            conn.close()
+        return new_count
+
+    def get_satnogs_observations(
+        self, norad_id: int, limit: int = 100
+    ) -> list[dict]:
+        """Get SatNOGS observations for a satellite, newest first."""
+        conn = self._get_conn()
+        rows = conn.execute(
+            """SELECT * FROM satnogs_observation
+               WHERE norad_id = ?
+               ORDER BY start_ts DESC LIMIT ?""",
+            (norad_id, limit),
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
+    def get_satnogs_stats(self) -> dict:
+        """SatNOGS observation counts by status."""
+        conn = self._get_conn()
+        rows = conn.execute(
+            """SELECT vetted_status, COUNT(*) as n
+               FROM satnogs_observation GROUP BY vetted_status"""
+        ).fetchall()
+        total = conn.execute(
+            "SELECT COUNT(*) FROM satnogs_observation"
+        ).fetchone()[0]
+        conn.close()
+        return {
+            "total": total,
+            "by_status": {r["vetted_status"]: r["n"] for r in rows},
+        }
 
     def get_supgp_stats(self) -> dict:
         """Supplemental GP row counts by source."""

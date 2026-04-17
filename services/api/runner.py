@@ -17,6 +17,7 @@ from services.api.main import (
 )
 from services.telemetry.tle_fetcher import run_tle_fetcher
 from services.telemetry.supgp_fetcher import run_supgp_fetcher
+from services.telemetry.satnogs_fetcher import run_satnogs_fetcher
 from services.brain.orbital_analyzer import analyze_constellation
 
 
@@ -82,6 +83,10 @@ async def run_all() -> None:
         asyncio.create_task(run_supgp_fetcher(
             store=store,
             interval=8 * 3600,
+        )),
+        asyncio.create_task(run_satnogs_fetcher(
+            store=store,
+            interval=6 * 3600,
         )),
         asyncio.create_task(position_update_loop(interval=5)),
     ]
