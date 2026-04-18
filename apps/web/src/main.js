@@ -16,7 +16,7 @@ import {
   ScreenSpaceEventType,
   ScreenSpaceEventHandler,
   defined,
-  EllipsoidGraphics,
+  NearFarScalar,
   ColorMaterialProperty,
   ConstantPositionProperty,
 } from "cesium";
@@ -93,13 +93,20 @@ function updateConstellation(satellites) {
     if (satelliteMap.has(key)) {
       const entry = satelliteMap.get(key);
       entry.point.position = pos;
-      entry.point.color = color;
+      // Don't overwrite color/size if this satellite is selected
+      if (key !== selectedNoradId) {
+        entry.point.color = color;
+        entry.point.pixelSize = 4;
+      }
       entry.data = sat;
     } else {
       const point = pointCollection.add({
         position: pos,
         color: color,
-        pixelSize: 2.5,
+        pixelSize: 4,
+        // Larger when zoomed in, smaller when zoomed out — makes
+        // clicking easier at close range without cluttering at distance
+        scaleByDistance: new NearFarScalar(5e5, 2.5, 2e7, 0.6),
       });
       point._noradId = key;
       satelliteMap.set(key, { point, data: sat });
@@ -108,6 +115,15 @@ function updateConstellation(satellites) {
 
   dom.satCount.textContent = satellites.length.toLocaleString();
   renderShells(shells);
+
+  // Update uncertainty sphere to track the selected satellite
+  if (selectedNoradId && uncertaintyEntity) {
+    const selEntry = satelliteMap.get(selectedNoradId);
+    if (selEntry) {
+      const s = selEntry.data;
+      uncertaintyEntity.position = Cartesian3.fromDegrees(s.lon, s.lat, s.alt_km * 1000);
+    }
+  }
 }
 
 function renderShells(shells) {
@@ -132,7 +148,8 @@ handler.setInputAction((click) => {
   }
 }, ScreenSpaceEventType.LEFT_CLICK);
 
-// Uncertainty ellipsoid entity (reused across selections)
+// Selection state
+let selectedNoradId = null;
 let uncertaintyEntity = null;
 
 function clearUncertaintyEllipsoid() {
@@ -178,9 +195,16 @@ async function selectSatellite(noradId) {
   const entry = satelliteMap.get(noradId);
   if (!entry) return;
 
-  // Highlight selected
-  for (const [, e] of satelliteMap) e.point.pixelSize = 2.5;
-  entry.point.pixelSize = 8;
+  // Reset previous selection
+  if (selectedNoradId && satelliteMap.has(selectedNoradId)) {
+    const prev = satelliteMap.get(selectedNoradId);
+    prev.point.pixelSize = 4;
+    prev.point.color = shellColor(prev.data.alt_km);
+  }
+
+  // Highlight new selection — large bright point
+  selectedNoradId = noradId;
+  entry.point.pixelSize = 12;
   entry.point.color = Color.WHITE;
 
   const sat = entry.data;
