@@ -194,6 +194,7 @@ async def run_worker(
                 broadcast_telemetry as _broadcast_telemetry,
                 broadcast_alert as _broadcast_alert,
             )
+
             print("[INIT] API integration enabled")
         except ImportError:
             print("[INIT] API module not available, running standalone")
@@ -208,12 +209,16 @@ async def run_worker(
     if with_skeptic:
         try:
             from services.brain.skeptic_agent import SkepticAgent
+
             skeptic = SkepticAgent(anomaly_threshold_pct=0.5)
             print("[INIT] Skeptic Agent loaded")
         except ImportError:
             try:
-                sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent / "brain"))
+                sys.path.insert(
+                    0, str(__import__("pathlib").Path(__file__).parent.parent / "brain")
+                )
                 from skeptic_agent import SkepticAgent
+
                 skeptic = SkepticAgent(anomaly_threshold_pct=0.5)
                 print("[INIT] Skeptic Agent loaded (via sys.path)")
             except ImportError:

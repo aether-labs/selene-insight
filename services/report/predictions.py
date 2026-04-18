@@ -175,20 +175,22 @@ def main(argv: list[str] | None = None) -> int:
         resolved = resolve_predictions(store)
         print(f"Resolved {len(resolved)} predictions:")
         for r in resolved:
-            print(f"  [{r['outcome']:>9s}] {r.get('name') or r['norad_id']}: {r['resolution_notes']}")
+            print(
+                f"  [{r['outcome']:>9s}] {r.get('name') or r['norad_id']}: {r['resolution_notes']}"
+            )
 
     elif args.action == "score":
         sc = store.get_prediction_scorecard()
-        print(f"Prediction scorecard:")
+        print("Prediction scorecard:")
         print(f"  Total:     {sc['total']}")
         print(f"  Pending:   {sc['pending']}")
         print(f"  Correct:   {sc['correct']}")
         print(f"  Incorrect: {sc['incorrect']}")
         print(f"  Expired:   {sc['expired']}")
-        if sc['accuracy'] is not None:
-            print(f"  Accuracy:  {sc['accuracy']*100:.1f}%")
+        if sc["accuracy"] is not None:
+            print(f"  Accuracy:  {sc['accuracy'] * 100:.1f}%")
         else:
-            print(f"  Accuracy:  (no resolved predictions yet)")
+            print("  Accuracy:  (no resolved predictions yet)")
 
     return 0
 

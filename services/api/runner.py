@@ -13,7 +13,11 @@ import time
 import uvicorn
 
 from services.api.main import (
-    app, store, propagator, update_position_cache, broadcast,
+    app,
+    store,
+    propagator,
+    update_position_cache,
+    broadcast,
 )
 from services.telemetry.tle_fetcher import run_tle_fetcher
 from services.telemetry.supgp_fetcher import run_supgp_fetcher
@@ -31,10 +35,14 @@ async def position_update_loop(interval: int = 5) -> None:
 
         # Broadcast positions to WebSocket clients
         from services.api.main import _position_cache
-        await broadcast("positions", {
-            "count": _position_cache["count"],
-            "timestamp": _position_cache["timestamp"],
-        })
+
+        await broadcast(
+            "positions",
+            {
+                "count": _position_cache["count"],
+                "timestamp": _position_cache["timestamp"],
+            },
+        )
 
         await asyncio.sleep(interval)
 
@@ -51,7 +59,9 @@ def on_tle_fetch_complete(total: int, new: int) -> None:
     if anomalies:
         print(f"[ANOMALY] Detected {len(anomalies)} anomalies:")
         for a in anomalies[:5]:
-            print(f"  {a['anomaly_type']}: norad={a['norad_id']} {a.get('details','')}")
+            print(
+                f"  {a['anomaly_type']}: norad={a['norad_id']} {a.get('details', '')}"
+            )
         # Broadcast anomalies (fire-and-forget in the event loop)
         loop = asyncio.get_event_loop()
         for a in anomalies:
@@ -75,19 +85,25 @@ async def run_all() -> None:
 
     tasks = [
         asyncio.create_task(server.serve()),
-        asyncio.create_task(run_tle_fetcher(
-            store=store,
-            on_complete=on_tle_fetch_complete,
-            interval=8 * 3600,
-        )),
-        asyncio.create_task(run_supgp_fetcher(
-            store=store,
-            interval=8 * 3600,
-        )),
-        asyncio.create_task(run_satnogs_fetcher(
-            store=store,
-            interval=6 * 3600,
-        )),
+        asyncio.create_task(
+            run_tle_fetcher(
+                store=store,
+                on_complete=on_tle_fetch_complete,
+                interval=8 * 3600,
+            )
+        ),
+        asyncio.create_task(
+            run_supgp_fetcher(
+                store=store,
+                interval=8 * 3600,
+            )
+        ),
+        asyncio.create_task(
+            run_satnogs_fetcher(
+                store=store,
+                interval=6 * 3600,
+            )
+        ),
         asyncio.create_task(position_update_loop(interval=5)),
     ]
 

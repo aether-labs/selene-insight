@@ -62,8 +62,12 @@ class IMM:
         self.x = filters[0].x.copy()
         self.P = filters[0].P.copy()
 
-    def predict(self, dt: float, fx_args_per_model: list[tuple] | None = None,
-                batch_fx: callable | None = None) -> None:
+    def predict(
+        self,
+        dt: float,
+        fx_args_per_model: list[tuple] | None = None,
+        batch_fx: callable | None = None,
+    ) -> None:
         """IMM predict: mix → predict each filter.
 
         Args:
@@ -102,8 +106,9 @@ class IMM:
 
         # ── Step 3: Predict each filter ──
         for j in range(n):
-            self.filters[j].predict(dt=dt, fx_args=fx_args_per_model[j],
-                                     batch_fx=batch_fx)
+            self.filters[j].predict(
+                dt=dt, fx_args=fx_args_per_model[j], batch_fx=batch_fx
+            )
 
         # Update mixing probabilities (before update step)
         self.mu = c_bar

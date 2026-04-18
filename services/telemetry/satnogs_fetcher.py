@@ -58,7 +58,8 @@ async def fetch_observations(
     """
     results: list[dict] = []
     async with httpx.AsyncClient(
-        timeout=30, follow_redirects=True,
+        timeout=30,
+        follow_redirects=True,
         headers={"User-Agent": "argusorb/0.2 (satnogs-fetcher)"},
     ) as client:
         for norad_id in norad_ids:
@@ -118,7 +119,8 @@ def _parse_observation(obs: dict) -> dict:
     """Extract the fields we care about from a SatNOGS observation."""
     return {
         "observation_id": obs.get("id"),
-        "norad_id": obs.get("_norad_id") or obs.get("satellite", {}).get("norad_cat_id"),
+        "norad_id": obs.get("_norad_id")
+        or obs.get("satellite", {}).get("norad_cat_id"),
         "start_ts": obs.get("start", ""),
         "end_ts": obs.get("end", ""),
         "ground_station": obs.get("ground_station"),
@@ -160,7 +162,9 @@ async def run_satnogs_fetcher(
             if not gaps:
                 elapsed_ms = int((time.perf_counter() - t0) * 1000)
                 if cycle <= 2:
-                    print(f"[SATNOGS][{cycle:04d}] no TLE gaps, nothing to check ({elapsed_ms}ms)")
+                    print(
+                        f"[SATNOGS][{cycle:04d}] no TLE gaps, nothing to check ({elapsed_ms}ms)"
+                    )
                 await _sleep_cycle(cycle, interval)
                 continue
 
@@ -175,6 +179,7 @@ async def run_satnogs_fetcher(
 
             # Summarize
             from collections import Counter
+
             status_counts = Counter(o["vetted_status"] for o in parsed)
             elapsed_ms = int((time.perf_counter() - t0) * 1000)
 
@@ -189,7 +194,9 @@ async def run_satnogs_fetcher(
                 nid = gap["norad_id"]
                 sat_obs = [o for o in parsed if o["norad_id"] == nid]
                 good = sum(1 for o in sat_obs if o["vetted_status"] == "good")
-                failed = sum(1 for o in sat_obs if o["vetted_status"] in ("failed", "bad"))
+                failed = sum(
+                    1 for o in sat_obs if o["vetted_status"] in ("failed", "bad")
+                )
                 if sat_obs and failed > 0 and good == 0:
                     print(
                         f"[SATNOGS][{cycle:04d}] ⚠ {gap.get('name') or nid}: "

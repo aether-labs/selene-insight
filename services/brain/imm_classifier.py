@@ -46,12 +46,20 @@ MODEL_NAMES = {0: "station_keeping", 1: "maneuver", 2: "decay"}
 # State = [x, y, z, vx, vy, vz] in meters and m/s.
 # Q diagonal: [pos_noise², pos_noise², pos_noise², vel_noise², vel_noise², vel_noise²]
 
+
 def _make_Q(pos_sigma_m: float, vel_sigma_ms: float) -> np.ndarray:
     """Build a diagonal process noise covariance."""
-    return np.diag([
-        pos_sigma_m**2, pos_sigma_m**2, pos_sigma_m**2,
-        vel_sigma_ms**2, vel_sigma_ms**2, vel_sigma_ms**2,
-    ])
+    return np.diag(
+        [
+            pos_sigma_m**2,
+            pos_sigma_m**2,
+            pos_sigma_m**2,
+            vel_sigma_ms**2,
+            vel_sigma_ms**2,
+            vel_sigma_ms**2,
+        ]
+    )
+
 
 # Base Q values at 550 km reference altitude.
 # Scaled by (REF_ALT / actual_alt)² for altitude-adaptive behavior.
@@ -67,24 +75,38 @@ Q_MAN_BASE = _make_Q(pos_sigma_m=500.0, vel_sigma_ms=1.0)
 Q_DECAY_BASE = _make_Q(pos_sigma_m=2000.0, vel_sigma_ms=0.1)
 
 # Observation noise R: TLE → sgp4 gives ~1 km position, ~1 m/s velocity
-R_TLE = np.diag([
-    1000.0**2, 1000.0**2, 1000.0**2,   # 1 km position noise
-    1.0**2, 1.0**2, 1.0**2,             # 1 m/s velocity noise
-])
+R_TLE = np.diag(
+    [
+        1000.0**2,
+        1000.0**2,
+        1000.0**2,  # 1 km position noise
+        1.0**2,
+        1.0**2,
+        1.0**2,  # 1 m/s velocity noise
+    ]
+)
 
 # Initial covariance: start with TLE-level uncertainty
-P0 = np.diag([
-    2000.0**2, 2000.0**2, 2000.0**2,   # 2 km position
-    2.0**2, 2.0**2, 2.0**2,             # 2 m/s velocity
-])
+P0 = np.diag(
+    [
+        2000.0**2,
+        2000.0**2,
+        2000.0**2,  # 2 km position
+        2.0**2,
+        2.0**2,
+        2.0**2,  # 2 m/s velocity
+    ]
+)
 
 # IMM transition matrix at reference altitude (550 km).
 # At lower altitudes, decay transition probability increases.
-T_MATRIX_BASE = np.array([
-    [0.97, 0.015, 0.015],  # from station-keeping
-    [0.10, 0.85,  0.05],   # from maneuver (short-lived, likely returns to SK)
-    [0.02, 0.03,  0.95],   # from decay (tends to persist)
-])
+T_MATRIX_BASE = np.array(
+    [
+        [0.97, 0.015, 0.015],  # from station-keeping
+        [0.10, 0.85, 0.05],  # from maneuver (short-lived, likely returns to SK)
+        [0.02, 0.03, 0.95],  # from decay (tends to persist)
+    ]
+)
 
 
 def _altitude_scale(alt_km: float) -> float:
@@ -105,9 +127,9 @@ def _altitude_adjusted_Qs(alt_km: float) -> list[np.ndarray]:
     """Return [Q_sk, Q_maneuver, Q_decay] scaled for current altitude."""
     s = _altitude_scale(alt_km)
     return [
-        Q_SK_BASE,              # station-keeping Q doesn't scale
-        Q_MAN_BASE,             # maneuver Q doesn't scale (Δv is Δv)
-        Q_DECAY_BASE * s,       # decay Q scales with drag intensity
+        Q_SK_BASE,  # station-keeping Q doesn't scale
+        Q_MAN_BASE,  # maneuver Q doesn't scale (Δv is Δv)
+        Q_DECAY_BASE * s,  # decay Q scales with drag intensity
     ]
 
 
@@ -142,8 +164,8 @@ def _altitude_adjusted_T(alt_km: float) -> np.ndarray:
     if alt_km < 350:
         # Increase P(sk → decay) and P(decay → decay) at low altitude
         boost = min((350 - alt_km) / 150.0, 1.0) * 0.10
-        T[0, 2] += boost          # sk → decay
-        T[0, 0] -= boost          # less persistence in sk
+        T[0, 2] += boost  # sk → decay
+        T[0, 0] -= boost  # less persistence in sk
         T[2, 2] = min(T[2, 2] + boost * 0.5, 0.99)  # more decay persistence
         T[2, 0] = max(T[2, 0] - boost * 0.5, 0.005)
     return T
@@ -158,6 +180,7 @@ def _fx_wrapper(state: np.ndarray, dt: float, bstar: float = 0.0) -> np.ndarray:
 def _batch_fx_wrapper(sigmas: np.ndarray, dt: float, bstar: float = 0.0):
     """Batch state transition: vectorized RK4 for all sigma points at once."""
     from services.brain.dynamics import propagate_batch_rk4
+
     return propagate_batch_rk4(sigmas, dt, bstar=bstar)
 
 
@@ -181,9 +204,13 @@ def create_imm(initial_state: np.ndarray, alt_km: float = REF_ALT_KM) -> IMM:
     filters = []
     for i in range(3):
         ukf = UKF(
-            n_state=6, n_obs=6,
-            fx=_fx_wrapper, hx=_hx_identity,
-            alpha=1e-2, beta=2.0, kappa=0.0,
+            n_state=6,
+            n_obs=6,
+            fx=_fx_wrapper,
+            hx=_hx_identity,
+            alpha=1e-2,
+            beta=2.0,
+            kappa=0.0,
         )
         ukf.x = initial_state.copy()
         ukf.P = P0.copy()
@@ -225,6 +252,7 @@ def classify_satellite_history(
 
     # Estimate initial altitude for adaptive parameters
     from services.brain.dynamics import R_EARTH
+
     alt0_km = np.linalg.norm(state0[:3]) / 1000 - R_EARTH / 1000
 
     # Below 300 km, the atmosphere model is too crude for reliable
@@ -242,7 +270,7 @@ def classify_satellite_history(
         curr_tle = history[i]
 
         # Time between TLEs
-        dt_days = (curr_tle.get("epoch_jd", 0) - prev_tle.get("epoch_jd", 0))
+        dt_days = curr_tle.get("epoch_jd", 0) - prev_tle.get("epoch_jd", 0)
         dt_seconds = dt_days * 86400.0
         if dt_seconds <= 0 or dt_seconds > 7 * 86400:
             # Skip backwards or very large gaps (>7 days)
@@ -253,15 +281,14 @@ def classify_satellite_history(
         # Predict (using batch propagation for speed)
         fx_args = [(bstar,)] * 3
         try:
-            imm.predict(dt=dt_seconds, fx_args_per_model=fx_args,
-                        batch_fx=_batch_fx_wrapper)
+            imm.predict(
+                dt=dt_seconds, fx_args_per_model=fx_args, batch_fx=_batch_fx_wrapper
+            )
         except Exception:
             continue
 
         # Observe: current TLE → state vector
-        obs_state = tle_to_state(
-            curr_tle.get("line1", ""), curr_tle.get("line2", "")
-        )
+        obs_state = tle_to_state(curr_tle.get("line1", ""), curr_tle.get("line2", ""))
         if obs_state is None:
             continue
 
@@ -281,6 +308,7 @@ def classify_satellite_history(
             model_name = MODEL_NAMES[best_model]
 
             from services.brain.dynamics import R_EARTH
+
             alt_km = np.linalg.norm(imm.x[:3]) / 1000 - R_EARTH / 1000
 
             label = {
@@ -305,6 +333,7 @@ def classify_satellite_history(
 
 # ── CLI ──
 
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
@@ -314,8 +343,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("norad_id", type=int, help="NORAD catalog ID")
     parser.add_argument("--db", help="Path to SQLite store")
-    parser.add_argument("--write", action="store_true",
-                        help="Write labels to the anomaly table")
+    parser.add_argument(
+        "--write", action="store_true", help="Write labels to the anomaly table"
+    )
     args = parser.parse_args(argv)
 
     db = args.db or os.environ.get("ARGUS_DB_PATH", "data/starlink.db")
@@ -325,8 +355,7 @@ def main(argv: list[str] | None = None) -> int:
     labels = classify_satellite_history(store, args.norad_id)
     elapsed = time.time() - t0
 
-    print(f"IMM-UKF: {len(labels)} events for NORAD {args.norad_id} "
-          f"in {elapsed:.2f}s")
+    print(f"IMM-UKF: {len(labels)} events for NORAD {args.norad_id} in {elapsed:.2f}s")
 
     for label in labels:
         model_type = label["anomaly_type"].replace("imm_", "")
@@ -341,8 +370,9 @@ def main(argv: list[str] | None = None) -> int:
             label["detected_at"] = now
             if store.insert_anomaly(label):
                 written += 1
-        print(f"\nWrote {written} new labels to anomaly table "
-              f"(classified_by=imm_ukf_v1)")
+        print(
+            f"\nWrote {written} new labels to anomaly table (classified_by=imm_ukf_v1)"
+        )
 
     return 0
 

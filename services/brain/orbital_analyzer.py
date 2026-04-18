@@ -40,12 +40,14 @@ MU_EARTH = 3.986004418e14  # m^3/s^2
 R_EARTH_KM = 6371.0
 
 # ── Thresholds (ruleset v1) ──
-REENTRY_ALT_KM = 250.0        # below this = physical atmosphere, days to reentry
-LOW_ORBIT_ALT_KM = 400.0      # decay rule only applies below this
-DECAY_DELTA_KM = 5.0          # persistent drop > this in LEO = decaying
-MANEUVER_ALT_DELTA_KM = 10.0  # Starlink station-keeping is << 1 km, so 10 km is clearly commanded
-INCLINATION_DELTA_DEG = 0.1   # TLE noise is ~0.01°, real plane change is very expensive
-ECC_DELTA = 0.01              # eccentricity shift indicating burn
+REENTRY_ALT_KM = 250.0  # below this = physical atmosphere, days to reentry
+LOW_ORBIT_ALT_KM = 400.0  # decay rule only applies below this
+DECAY_DELTA_KM = 5.0  # persistent drop > this in LEO = decaying
+MANEUVER_ALT_DELTA_KM = (
+    10.0  # Starlink station-keeping is << 1 km, so 10 km is clearly commanded
+)
+INCLINATION_DELTA_DEG = 0.1  # TLE noise is ~0.01°, real plane change is very expensive
+ECC_DELTA = 0.01  # eccentricity shift indicating burn
 
 # B* rules — these fire only when rules 1-5 didn't already flag the pair,
 # so they catch the "nothing obvious changed in altitude/ecc/incl but the
@@ -58,9 +60,11 @@ ECC_DELTA = 0.01              # eccentricity shift indicating burn
 # actively-thrust constellation, not anomalies. Raised to catch only the
 # outlier events: simultaneous sign flip + large magnitude change, or
 # magnitude jumps well above the fleet median (~1e-3).
-BSTAR_SIGN_FLIP_FLOOR = 5e-3   # both |old| and |new| must be well above median (large-B* regime)
-BSTAR_JUMP_RATIO = 2.0         # relative change > 200% (not 50% — normal cycling is ~50%)
-BSTAR_JUMP_ABS_MIN = 5e-3      # absolute change must also be large (10× original threshold)
+BSTAR_SIGN_FLIP_FLOOR = (
+    5e-3  # both |old| and |new| must be well above median (large-B* regime)
+)
+BSTAR_JUMP_RATIO = 2.0  # relative change > 200% (not 50% — normal cycling is ~50%)
+BSTAR_JUMP_ABS_MIN = 5e-3  # absolute change must also be large (10× original threshold)
 
 
 def mean_motion_to_alt_km(mm: float) -> float:
@@ -180,8 +184,7 @@ def analyze_tle_pair(old: dict, new: dict) -> dict | None:
             "cause": "maneuver_candidate",
             "confidence": _confidence(delta_ecc, ECC_DELTA),
             "details": (
-                f"Eccentricity changed by {delta_ecc:.4f} "
-                f"({ecc_old:.4f}→{ecc_new:.4f})"
+                f"Eccentricity changed by {delta_ecc:.4f} ({ecc_old:.4f}→{ecc_new:.4f})"
             ),
         }
 
@@ -197,9 +200,11 @@ def analyze_tle_pair(old: dict, new: dict) -> dict | None:
         denom = max(abs_old, BSTAR_SIGN_FLIP_FLOOR)
 
         # 6. B* sign flip — propulsion mode switch (boost ↔ coast)
-        if (abs_old > BSTAR_SIGN_FLIP_FLOOR
-                and abs_new > BSTAR_SIGN_FLIP_FLOOR
-                and (bstar_old > 0) != (bstar_new > 0)):
+        if (
+            abs_old > BSTAR_SIGN_FLIP_FLOOR
+            and abs_new > BSTAR_SIGN_FLIP_FLOOR
+            and (bstar_old > 0) != (bstar_new > 0)
+        ):
             return {
                 **base,
                 "anomaly_type": "bstar_sign_flip",
@@ -212,8 +217,7 @@ def analyze_tle_pair(old: dict, new: dict) -> dict | None:
             }
 
         # 7. B* magnitude jump — atmospheric anomaly or drag model shift
-        if (delta_bstar > BSTAR_JUMP_ABS_MIN
-                and delta_bstar / denom > BSTAR_JUMP_RATIO):
+        if delta_bstar > BSTAR_JUMP_ABS_MIN and delta_bstar / denom > BSTAR_JUMP_RATIO:
             return {
                 **base,
                 "anomaly_type": "bstar_anomaly",
@@ -222,7 +226,7 @@ def analyze_tle_pair(old: dict, new: dict) -> dict | None:
                 "details": (
                     f"B* jumped by {delta_bstar:.3e} "
                     f"({bstar_old:+.3e}→{bstar_new:+.3e}, "
-                    f"{100*delta_bstar/denom:.0f}% change) in {dt_days:.1f} days"
+                    f"{100 * delta_bstar / denom:.0f}% change) in {dt_days:.1f} days"
                 ),
             }
 
@@ -372,7 +376,7 @@ def label_full_history(
 
         if (i + 1) % batch_log_interval == 0:
             print(
-                f"[backfill labels] {i+1}/{len(all_sats)} sats, "
+                f"[backfill labels] {i + 1}/{len(all_sats)} sats, "
                 f"{total_new} new labels so far"
             )
 

@@ -14,13 +14,12 @@ import math
 import re
 import signal
 import sys
-import time
 from datetime import datetime, timezone
 
 try:
     from services.telemetry.models import TelemetryPoint
 except ImportError:
-    from models import TelemetryPoint
+    pass
 
 # ---------------------------------------------------------------------------
 # Config
@@ -42,8 +41,10 @@ R_MOON_KM = 1737.4
 def _get_ssl_context():
     """Get SSL context, falling back to unverified if system certs are broken."""
     import ssl
+
     try:
         import certifi
+
         return ssl.create_default_context(cafile=certifi.where())
     except Exception:
         return ssl._create_unverified_context()
@@ -65,20 +66,21 @@ async def fetch_horizons_vectors(
     import urllib.request
     import urllib.parse
     import json
-    import ssl
 
-    params = urllib.parse.urlencode({
-        "format": "json",
-        "COMMAND": f"'{ARTEMIS_II_ID}'",
-        "OBJ_DATA": "'NO'",
-        "MAKE_EPHEM": "'YES'",
-        "EPHEM_TYPE": "'VECTORS'",
-        "CENTER": "'500@399'",  # Earth center
-        "START_TIME": f"'{start_time}'",
-        "STOP_TIME": f"'{stop_time}'",
-        "STEP_SIZE": f"'{step}'",
-        "VEC_TABLE": "'2'",  # position + velocity
-    })
+    params = urllib.parse.urlencode(
+        {
+            "format": "json",
+            "COMMAND": f"'{ARTEMIS_II_ID}'",
+            "OBJ_DATA": "'NO'",
+            "MAKE_EPHEM": "'YES'",
+            "EPHEM_TYPE": "'VECTORS'",
+            "CENTER": "'500@399'",  # Earth center
+            "START_TIME": f"'{start_time}'",
+            "STOP_TIME": f"'{stop_time}'",
+            "STEP_SIZE": f"'{step}'",
+            "VEC_TABLE": "'2'",  # position + velocity
+        }
+    )
 
     url = f"{HORIZONS_API}?{params}"
 
@@ -103,7 +105,7 @@ def _parse_vectors(text: str) -> list[dict]:
     if soe < 0 or eoe < 0:
         return results
 
-    block = text[soe + 5:eoe].strip()
+    block = text[soe + 5 : eoe].strip()
     lines = block.split("\n")
 
     i = 0
@@ -120,14 +122,28 @@ def _parse_vectors(text: str) -> list[dict]:
 
             # Parse month
             months = {
-                "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
-                "Jul": 7, "Aug": 8, "Sep": 9, "Oct": 10, "Nov": 11, "Dec": 12,
+                "Jan": 1,
+                "Feb": 2,
+                "Mar": 3,
+                "Apr": 4,
+                "May": 5,
+                "Jun": 6,
+                "Jul": 7,
+                "Aug": 8,
+                "Sep": 9,
+                "Oct": 10,
+                "Nov": 11,
+                "Dec": 12,
             }
             month = months.get(mon_str, 1)
 
             dt = datetime(
-                int(year), month, int(day),
-                int(hour), int(minute), int(sec),
+                int(year),
+                month,
+                int(day),
+                int(hour),
+                int(minute),
+                int(sec),
                 tzinfo=timezone.utc,
             )
             timestamp = dt.timestamp()
@@ -142,17 +158,23 @@ def _parse_vectors(text: str) -> list[dict]:
 
             if len(pos_match) >= 3 and len(vel_match) >= 3:
                 x, y, z = float(pos_match[0]), float(pos_match[1]), float(pos_match[2])
-                vx, vy, vz = float(vel_match[0]), float(vel_match[1]), float(vel_match[2])
+                vx, vy, vz = (
+                    float(vel_match[0]),
+                    float(vel_match[1]),
+                    float(vel_match[2]),
+                )
 
-                results.append({
-                    "timestamp": timestamp,
-                    "x_km": x,
-                    "y_km": y,
-                    "z_km": z,
-                    "vx_kms": vx,
-                    "vy_kms": vy,
-                    "vz_kms": vz,
-                })
+                results.append(
+                    {
+                        "timestamp": timestamp,
+                        "x_km": x,
+                        "y_km": y,
+                        "z_km": z,
+                        "vx_kms": vx,
+                        "vy_kms": vy,
+                        "vz_kms": vz,
+                    }
+                )
 
             i += 3
         else:
@@ -166,7 +188,9 @@ def _parse_vectors(text: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def vectors_to_telemetry(vec: dict, moon_pos: tuple[float, float, float] | None = None) -> dict:
+def vectors_to_telemetry(
+    vec: dict, moon_pos: tuple[float, float, float] | None = None
+) -> dict:
     """Convert Horizons state vector to telemetry dict.
 
     Args:
@@ -224,18 +248,20 @@ async def fetch_moon_position(timestamp_utc: str) -> tuple[float, float, float] 
         import urllib.parse
         import json
 
-        params = urllib.parse.urlencode({
-            "format": "json",
-            "COMMAND": "'301'",
-            "OBJ_DATA": "'NO'",
-            "MAKE_EPHEM": "'YES'",
-            "EPHEM_TYPE": "'VECTORS'",
-            "CENTER": "'500@399'",
-            "START_TIME": f"'{timestamp_utc}'",
-            "STOP_TIME": f"'{timestamp_utc[:10]} 23:59'",
-            "STEP_SIZE": "'1440 min'",  # one step = 24h, so only 1 result
-            "VEC_TABLE": "'2'",
-        })
+        params = urllib.parse.urlencode(
+            {
+                "format": "json",
+                "COMMAND": "'301'",
+                "OBJ_DATA": "'NO'",
+                "MAKE_EPHEM": "'YES'",
+                "EPHEM_TYPE": "'VECTORS'",
+                "CENTER": "'500@399'",
+                "START_TIME": f"'{timestamp_utc}'",
+                "STOP_TIME": f"'{timestamp_utc[:10]} 23:59'",
+                "STEP_SIZE": "'1440 min'",  # one step = 24h, so only 1 result
+                "VEC_TABLE": "'2'",
+            }
+        )
 
         url = f"{HORIZONS_API}?{params}"
         ctx = _get_ssl_context()
@@ -280,6 +306,7 @@ async def run_horizons_worker(
             start = now.strftime("%Y-%m-%d %H:%M")
             # Horizons requires start < stop; query a 5-min window
             from datetime import timedelta
+
             stop_dt = now + timedelta(minutes=5)
             stop = stop_dt.strftime("%Y-%m-%d %H:%M")
 

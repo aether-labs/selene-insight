@@ -260,10 +260,15 @@ class StarlinkStore:
                         inclination, mean_motion, eccentricity, bstar)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
-                        t["norad_id"], t["epoch_jd"], now,
-                        t["line1"], t["line2"],
-                        t.get("inclination"), t.get("mean_motion"),
-                        t.get("eccentricity"), t.get("bstar"),
+                        t["norad_id"],
+                        t["epoch_jd"],
+                        now,
+                        t["line1"],
+                        t["line2"],
+                        t.get("inclination"),
+                        t.get("mean_motion"),
+                        t.get("eccentricity"),
+                        t.get("bstar"),
                     ),
                 )
                 if cursor.rowcount > 0:
@@ -279,10 +284,13 @@ class StarlinkStore:
                            shell_km=excluded.shell_km,
                            last_seen=excluded.last_seen""",
                     (
-                        t["norad_id"], t.get("name", ""),
+                        t["norad_id"],
+                        t.get("name", ""),
                         t.get("intl_designator", ""),
-                        t.get("shell_km"), t.get("launch_group"),
-                        now, now,
+                        t.get("shell_km"),
+                        t.get("launch_group"),
+                        now,
+                        now,
                     ),
                 )
             conn.commit()
@@ -468,8 +476,14 @@ class StarlinkStore:
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     fetched_at if fetched_at is not None else time.time(),
-                    status, http_bytes, parsed_count, new_tle_count,
-                    parse_errors, duration_ms, error_msg, raw_archive_path,
+                    status,
+                    http_bytes,
+                    parsed_count,
+                    new_tle_count,
+                    parse_errors,
+                    duration_ms,
+                    error_msg,
+                    raw_archive_path,
                 ),
             )
             row_id = cursor.lastrowid
@@ -487,9 +501,7 @@ class StarlinkStore:
         conn.close()
         return [dict(r) for r in rows]
 
-    def get_fetch_log_in_window(
-        self, start_ts: float, end_ts: float
-    ) -> list[dict]:
+    def get_fetch_log_in_window(self, start_ts: float, end_ts: float) -> list[dict]:
         """Fetch attempts with fetched_at in [start_ts, end_ts), oldest first.
 
         Oldest-first ordering makes gap analysis trivial for the caller.
@@ -631,10 +643,16 @@ class StarlinkStore:
                         inclination, mean_motion, eccentricity, bstar)
                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
-                        t["norad_id"], t["epoch_jd"], now, source,
-                        t["line1"], t["line2"],
-                        t.get("inclination"), t.get("mean_motion"),
-                        t.get("eccentricity"), t.get("bstar"),
+                        t["norad_id"],
+                        t["epoch_jd"],
+                        now,
+                        source,
+                        t["line1"],
+                        t["line2"],
+                        t.get("inclination"),
+                        t.get("mean_motion"),
+                        t.get("eccentricity"),
+                        t.get("bstar"),
                     ),
                 )
                 if cursor.rowcount > 0:
@@ -680,9 +698,7 @@ class StarlinkStore:
             conn.close()
         return new_count
 
-    def get_satnogs_observations(
-        self, norad_id: int, limit: int = 100
-    ) -> list[dict]:
+    def get_satnogs_observations(self, norad_id: int, limit: int = 100) -> list[dict]:
         """Get SatNOGS observations for a satellite, newest first."""
         conn = self._get_conn()
         rows = conn.execute(
@@ -771,9 +787,7 @@ class StarlinkStore:
             """SELECT vetted_status, COUNT(*) as n
                FROM satnogs_observation GROUP BY vetted_status"""
         ).fetchall()
-        total = conn.execute(
-            "SELECT COUNT(*) FROM satnogs_observation"
-        ).fetchone()[0]
+        total = conn.execute("SELECT COUNT(*) FROM satnogs_observation").fetchone()[0]
         conn.close()
         return {
             "total": total,

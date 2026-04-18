@@ -5,17 +5,18 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-import time
 from datetime import datetime, timezone
 
 
 def _make_store():
     from services.telemetry.store import StarlinkStore
+
     db = tempfile.mktemp(suffix=".db")
     return StarlinkStore(db), db
 
 
 # ── Time window helpers ──
+
 
 def test_iso_week_bounds():
     from services.report.weekly import iso_week_bounds
@@ -33,6 +34,7 @@ def test_iso_week_bounds():
 
 def test_parse_week_string():
     from services.report.weekly import parse_week_string
+
     assert parse_week_string("2026-W15") == (2026, 15)
     assert parse_week_string("2025-W01") == (2025, 1)
 
@@ -51,6 +53,7 @@ def test_most_recent_complete_week():
 
 # ── build_report ──
 
+
 def _seed_store_for_week(store, week_start: float):
     """Populate a store with a week's worth of synthetic events."""
     # Two "established" satellites already in the store before the window
@@ -58,21 +61,36 @@ def _seed_store_for_week(store, week_start: float):
     pre_ts = week_start - 10 * 86400
     pre_tles = [
         {
-            "norad_id": 44714, "epoch_jd": 2460400.0, "line1": "x", "line2": "y",
-            "name": "STARLINK-1008", "inclination": 53.15,
-            "mean_motion": 15.34, "eccentricity": 0.0003,
-            "shell_km": 550, "intl_designator": "19074B", "launch_group": "19074",
+            "norad_id": 44714,
+            "epoch_jd": 2460400.0,
+            "line1": "x",
+            "line2": "y",
+            "name": "STARLINK-1008",
+            "inclination": 53.15,
+            "mean_motion": 15.34,
+            "eccentricity": 0.0003,
+            "shell_km": 550,
+            "intl_designator": "19074B",
+            "launch_group": "19074",
         },
         {
-            "norad_id": 44718, "epoch_jd": 2460400.0, "line1": "x", "line2": "y",
-            "name": "STARLINK-1012", "inclination": 53.15,
-            "mean_motion": 15.34, "eccentricity": 0.0003,
-            "shell_km": 550, "intl_designator": "19074F", "launch_group": "19074",
+            "norad_id": 44718,
+            "epoch_jd": 2460400.0,
+            "line1": "x",
+            "line2": "y",
+            "name": "STARLINK-1012",
+            "inclination": 53.15,
+            "mean_motion": 15.34,
+            "eccentricity": 0.0003,
+            "shell_km": 550,
+            "intl_designator": "19074F",
+            "launch_group": "19074",
         },
     ]
     store.upsert_tles(pre_tles)
     # Backdate their first_seen and last_seen.
     import sqlite3
+
     week_end = week_start + 7 * 86400
     conn = sqlite3.connect(store._db_path)
     # 44714: tracked (last_seen just before window close, so it's "fresh").
@@ -92,10 +110,17 @@ def _seed_store_for_week(store, week_start: float):
     # A brand new satellite that appears during the window.
     new_tles = [
         {
-            "norad_id": 59999, "epoch_jd": 2460402.0, "line1": "x", "line2": "y",
-            "name": "STARLINK-31999", "inclination": 53.15,
-            "mean_motion": 16.2, "eccentricity": 0.0004,
-            "shell_km": 340, "intl_designator": "26042A", "launch_group": "26042",
+            "norad_id": 59999,
+            "epoch_jd": 2460402.0,
+            "line1": "x",
+            "line2": "y",
+            "name": "STARLINK-31999",
+            "inclination": 53.15,
+            "mean_motion": 16.2,
+            "eccentricity": 0.0004,
+            "shell_km": 340,
+            "intl_designator": "26042A",
+            "launch_group": "26042",
         },
     ]
     store.upsert_tles(new_tles)
@@ -111,56 +136,81 @@ def _seed_store_for_week(store, week_start: float):
     conn.close()
 
     # rule_v1 labels inside the window
-    store.insert_anomaly({
-        "norad_id": 44714, "anomaly_type": "altitude_change",
-        "cause": "maneuver_candidate", "confidence": 0.85,
-        "classified_by": "rule_v1",
-        "source_epoch_jd": 2460402.0,
-        "altitude_before_km": 550, "altitude_after_km": 562,
-        "details": "Orbit raised by 12.0 km",
-        "detected_at": week_start + 3 * 86400,
-    })
-    store.insert_anomaly({
-        "norad_id": 44714, "anomaly_type": "inclination_shift",
-        "cause": "maneuver_candidate", "confidence": 0.6,
-        "classified_by": "rule_v1",
-        "source_epoch_jd": 2460403.0,
-        "details": "Inclination changed by 0.15°",
-        "detected_at": week_start + 4 * 86400,
-    })
-    store.insert_anomaly({
-        "norad_id": 44718, "anomaly_type": "deorbiting",
-        "cause": "natural_decay", "confidence": 0.92,
-        "classified_by": "rule_v1",
-        "source_epoch_jd": 2460404.0,
-        "altitude_before_km": 312, "altitude_after_km": 268,
-        "details": "Altitude dropped 44 km",
-        "detected_at": week_start + 2 * 86400,
-    })
+    store.insert_anomaly(
+        {
+            "norad_id": 44714,
+            "anomaly_type": "altitude_change",
+            "cause": "maneuver_candidate",
+            "confidence": 0.85,
+            "classified_by": "rule_v1",
+            "source_epoch_jd": 2460402.0,
+            "altitude_before_km": 550,
+            "altitude_after_km": 562,
+            "details": "Orbit raised by 12.0 km",
+            "detected_at": week_start + 3 * 86400,
+        }
+    )
+    store.insert_anomaly(
+        {
+            "norad_id": 44714,
+            "anomaly_type": "inclination_shift",
+            "cause": "maneuver_candidate",
+            "confidence": 0.6,
+            "classified_by": "rule_v1",
+            "source_epoch_jd": 2460403.0,
+            "details": "Inclination changed by 0.15°",
+            "detected_at": week_start + 4 * 86400,
+        }
+    )
+    store.insert_anomaly(
+        {
+            "norad_id": 44718,
+            "anomaly_type": "deorbiting",
+            "cause": "natural_decay",
+            "confidence": 0.92,
+            "classified_by": "rule_v1",
+            "source_epoch_jd": 2460404.0,
+            "altitude_before_km": 312,
+            "altitude_after_km": 268,
+            "details": "Altitude dropped 44 km",
+            "detected_at": week_start + 2 * 86400,
+        }
+    )
 
     # An imm_ukf_v1 label for the same event as the first rule_v1 one.
     # Must be excluded from the report because we filter classified_by=rule_v1.
-    store.insert_anomaly({
-        "norad_id": 44714, "anomaly_type": "altitude_change",
-        "cause": "natural_decay", "confidence": 0.95,
-        "classified_by": "imm_ukf_v1",
-        "source_epoch_jd": 2460402.0,
-        "detected_at": week_start + 3 * 86400,
-    })
+    store.insert_anomaly(
+        {
+            "norad_id": 44714,
+            "anomaly_type": "altitude_change",
+            "cause": "natural_decay",
+            "confidence": 0.95,
+            "classified_by": "imm_ukf_v1",
+            "source_epoch_jd": 2460402.0,
+            "detected_at": week_start + 3 * 86400,
+        }
+    )
 
     # An out-of-window label — must be excluded.
-    store.insert_anomaly({
-        "norad_id": 44714, "anomaly_type": "altitude_change",
-        "cause": "maneuver_candidate", "confidence": 0.5,
-        "classified_by": "rule_v1",
-        "source_epoch_jd": 2460395.0,
-        "detected_at": week_start - 3 * 86400,
-    })
+    store.insert_anomaly(
+        {
+            "norad_id": 44714,
+            "anomaly_type": "altitude_change",
+            "cause": "maneuver_candidate",
+            "confidence": 0.5,
+            "classified_by": "rule_v1",
+            "source_epoch_jd": 2460395.0,
+            "detected_at": week_start - 3 * 86400,
+        }
+    )
 
     # Fetch log: 21 successful fetches spread over the week.
     for i in range(21):
         store.log_fetch(
-            status="ok", parsed_count=10000, new_tle_count=50, parse_errors=0,
+            status="ok",
+            parsed_count=10000,
+            new_tle_count=50,
+            parse_errors=0,
             duration_ms=800,
             fetched_at=week_start + i * (86400 * 7 / 21),
         )
@@ -230,13 +280,17 @@ def test_build_report_classifier_isolation():
     store, db = _make_store()
     start_ts, end_ts = iso_week_bounds(2026, 15)
     # Only an imm_ukf_v1 label exists in the window.
-    store.insert_anomaly({
-        "norad_id": 44714, "anomaly_type": "altitude_change",
-        "cause": "maneuver_candidate", "confidence": 0.9,
-        "classified_by": "imm_ukf_v1",
-        "source_epoch_jd": 2460402.0,
-        "detected_at": start_ts + 86400,
-    })
+    store.insert_anomaly(
+        {
+            "norad_id": 44714,
+            "anomaly_type": "altitude_change",
+            "cause": "maneuver_candidate",
+            "confidence": 0.9,
+            "classified_by": "imm_ukf_v1",
+            "source_epoch_jd": 2460402.0,
+            "detected_at": start_ts + 86400,
+        }
+    )
 
     report = build_report(store, start_ts, end_ts)
     assert report["flagged_events"]["total"] == 0
@@ -246,6 +300,7 @@ def test_build_report_classifier_isolation():
 
 
 # ── Renderers ──
+
 
 def test_render_markdown_smoke():
     from services.report.weekly import build_report, render_markdown, iso_week_bounds
@@ -306,6 +361,7 @@ def test_render_json_valid():
 
 # ── Deltas ──
 
+
 def test_compute_deltas_populates_weekly_diff():
     from services.report.weekly import compute_deltas
 
@@ -337,6 +393,7 @@ def test_compute_deltas_populates_weekly_diff():
 
 def test_compute_deltas_empty_when_no_previous():
     from services.report.weekly import compute_deltas
+
     assert compute_deltas({"schema_version": 1}, None) == {}
     assert compute_deltas({"schema_version": 1}, {"schema_version": 999}) == {}
 
@@ -364,6 +421,7 @@ def test_render_markdown_with_deltas():
 
 
 # ── Persistence helper ──
+
 
 def test_load_previous_report(tmp_path):
     from services.report.weekly import load_previous_report

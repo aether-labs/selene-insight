@@ -22,12 +22,12 @@ from scipy.integrate import solve_ivp
 
 # ── Constants ──
 
-MU_EARTH = 3.986004418e14       # m³/s² — gravitational parameter
-R_EARTH = 6.3781363e6           # m — equatorial radius
-J2 = 1.08262668e-3              # J2 oblateness coefficient
-J3 = -2.53265648e-6             # J3 pear-shape term
-J4 = -1.61962159e-6             # J4 term
-OMEGA_EARTH = 7.2921159e-5      # rad/s — Earth rotation rate
+MU_EARTH = 3.986004418e14  # m³/s² — gravitational parameter
+R_EARTH = 6.3781363e6  # m — equatorial radius
+J2 = 1.08262668e-3  # J2 oblateness coefficient
+J3 = -2.53265648e-6  # J3 pear-shape term
+J4 = -1.61962159e-6  # J4 term
+OMEGA_EARTH = 7.2921159e-5  # rad/s — Earth rotation rate
 
 # Exponential atmosphere model (simplified CIRA/MSIS approximation)
 # Piecewise: below/above 500 km use different scale heights
@@ -37,17 +37,17 @@ OMEGA_EARTH = 7.2921159e-5      # rad/s — Earth rotation rate
 # but a "reasonable middle" that the UKF's process noise can absorb.
 _ATMO_BANDS = [
     # (alt_km_low, alt_km_high, rho0_kg_m3, h0_km, H_km)
-    (0,    100,   1.225,        0,      8.5),
-    (100,  150,   5.0e-7,     100,      6.0),
-    (150,  200,   2.5e-10,    150,     22.0),
-    (200,  250,   2.5e-10,    200,     30.0),
-    (250,  300,   4.0e-11,    250,     35.0),
-    (300,  400,   2.0e-11,    300,     45.0),
-    (400,  500,   4.0e-12,    400,     55.0),
-    (500,  600,   5.0e-13,    500,     65.0),
-    (600,  700,   8.0e-14,    600,     75.0),
-    (700,  1000,  1.5e-14,    700,     90.0),
-    (1000, 2000,  3.0e-15,   1000,    150.0),
+    (0, 100, 1.225, 0, 8.5),
+    (100, 150, 5.0e-7, 100, 6.0),
+    (150, 200, 2.5e-10, 150, 22.0),
+    (200, 250, 2.5e-10, 200, 30.0),
+    (250, 300, 4.0e-11, 250, 35.0),
+    (300, 400, 2.0e-11, 300, 45.0),
+    (400, 500, 4.0e-12, 400, 55.0),
+    (500, 600, 5.0e-13, 500, 65.0),
+    (600, 700, 8.0e-14, 600, 75.0),
+    (700, 1000, 1.5e-14, 700, 90.0),
+    (1000, 2000, 3.0e-15, 1000, 150.0),
 ]
 
 
@@ -75,7 +75,9 @@ def _atmospheric_density_vec(alt_km: np.ndarray) -> np.ndarray:
     for i in range(len(_ATMO_BANDS)):
         mask = (alt_km >= _ATMO_LOWS[i]) & (alt_km < _ATMO_HIGHS[i])
         if np.any(mask):
-            rho[mask] = _ATMO_RHO0[i] * np.exp(-(alt_km[mask] - _ATMO_H0[i]) / _ATMO_H[i])
+            rho[mask] = _ATMO_RHO0[i] * np.exp(
+                -(alt_km[mask] - _ATMO_H0[i]) / _ATMO_H[i]
+            )
     return rho
 
 
@@ -130,28 +132,34 @@ def equations_of_motion(t: float, state: np.ndarray, bstar: float = 0.0) -> np.n
 
     # J2: dominant oblateness — ~1 km/orbit effect
     f2 = 1.5 * J2 * MU_EARTH * R_EARTH**2 / r**5
-    a_j2 = np.array([
-        f2 * x * (5 * z_r2 - 1),
-        f2 * y * (5 * z_r2 - 1),
-        f2 * z * (5 * z_r2 - 3),
-    ])
+    a_j2 = np.array(
+        [
+            f2 * x * (5 * z_r2 - 1),
+            f2 * y * (5 * z_r2 - 1),
+            f2 * z * (5 * z_r2 - 3),
+        ]
+    )
 
     # J3: pear-shape asymmetry — ~1 m/orbit effect
     f3 = 0.5 * J3 * MU_EARTH * R_EARTH**3 / r**7
-    a_j3 = np.array([
-        f3 * 5 * x * (7 * z * z_r2 - 3 * z),
-        f3 * 5 * y * (7 * z * z_r2 - 3 * z),
-        f3 * (6 * z2 - 7 * z2 * z_r2 - 0.6 * r2),
-    ])
+    a_j3 = np.array(
+        [
+            f3 * 5 * x * (7 * z * z_r2 - 3 * z),
+            f3 * 5 * y * (7 * z * z_r2 - 3 * z),
+            f3 * (6 * z2 - 7 * z2 * z_r2 - 0.6 * r2),
+        ]
+    )
 
     # J4: ~0.1 m/orbit effect
     z_r4 = z_r2 * z_r2
     f4 = -0.625 * J4 * MU_EARTH * R_EARTH**4 / r**7
-    a_j4 = np.array([
-        f4 * x / r2 * (3 - 42 * z_r2 + 63 * z_r4),
-        f4 * y / r2 * (3 - 42 * z_r2 + 63 * z_r4),
-        f4 * z / r2 * (15 - 70 * z_r2 + 63 * z_r4),
-    ])
+    a_j4 = np.array(
+        [
+            f4 * x / r2 * (3 - 42 * z_r2 + 63 * z_r4),
+            f4 * y / r2 * (3 - 42 * z_r2 + 63 * z_r4),
+            f4 * z / r2 * (15 - 70 * z_r2 + 63 * z_r4),
+        ]
+    )
 
     a_gravity = a_grav + a_j2 + a_j3 + a_j4
 
@@ -161,11 +169,13 @@ def equations_of_motion(t: float, state: np.ndarray, bstar: float = 0.0) -> np.n
     a_drag = np.zeros(3)
     if rho > 0 and abs(bstar) > 1e-12:
         # Velocity relative to rotating atmosphere
-        v_atm = np.array([
-            vx + OMEGA_EARTH * y,
-            vy - OMEGA_EARTH * x,
-            vz,
-        ])
+        v_atm = np.array(
+            [
+                vx + OMEGA_EARTH * y,
+                vy - OMEGA_EARTH * x,
+                vz,
+            ]
+        )
         v_rel = v_vec - np.array([-OMEGA_EARTH * y, OMEGA_EARTH * x, 0.0])
         v_rel_mag = np.linalg.norm(v_rel)
         if v_rel_mag > 0:
@@ -228,14 +238,14 @@ def _vectorized_eom(states: np.ndarray, bstar: float) -> np.ndarray:
     Returns:
         (N, 6) array of derivatives
     """
-    pos = states[:, :3]                    # (N, 3)
-    vel = states[:, 3:]                    # (N, 3)
+    pos = states[:, :3]  # (N, 3)
+    vel = states[:, 3:]  # (N, 3)
     r = np.linalg.norm(pos, axis=1, keepdims=True)  # (N, 1)
     # Clamp to 150 km above surface — sigma points below this are
     # in a regime where the atmosphere model is unreliable and the
     # integrator produces garbage. Better to clamp and let the UKF
     # correct via the observation update.
-    r = np.maximum(r, R_EARTH + 150_000)   # 150 km minimum altitude
+    r = np.maximum(r, R_EARTH + 150_000)  # 150 km minimum altitude
 
     x = pos[:, 0:1]  # (N, 1)
     y = pos[:, 1:2]
@@ -245,32 +255,38 @@ def _vectorized_eom(states: np.ndarray, bstar: float) -> np.ndarray:
     z_r2 = z2 / r2
 
     # Point mass gravity
-    a_grav = -MU_EARTH / (r ** 3) * pos    # (N, 3)
+    a_grav = -MU_EARTH / (r**3) * pos  # (N, 3)
 
     # J2
-    f2 = 1.5 * J2 * MU_EARTH * R_EARTH ** 2 / r ** 5
-    a_j2 = np.column_stack([
-        f2 * x * (5 * z_r2 - 1),
-        f2 * y * (5 * z_r2 - 1),
-        f2 * z * (5 * z_r2 - 3),
-    ])
+    f2 = 1.5 * J2 * MU_EARTH * R_EARTH**2 / r**5
+    a_j2 = np.column_stack(
+        [
+            f2 * x * (5 * z_r2 - 1),
+            f2 * y * (5 * z_r2 - 1),
+            f2 * z * (5 * z_r2 - 3),
+        ]
+    )
 
     # J3
-    f3 = 0.5 * J3 * MU_EARTH * R_EARTH ** 3 / r ** 7
-    a_j3 = np.column_stack([
-        f3 * 5 * x * (7 * z * z_r2 - 3 * z),
-        f3 * 5 * y * (7 * z * z_r2 - 3 * z),
-        f3 * (6 * z2 - 7 * z2 * z_r2 - 0.6 * r2),
-    ])
+    f3 = 0.5 * J3 * MU_EARTH * R_EARTH**3 / r**7
+    a_j3 = np.column_stack(
+        [
+            f3 * 5 * x * (7 * z * z_r2 - 3 * z),
+            f3 * 5 * y * (7 * z * z_r2 - 3 * z),
+            f3 * (6 * z2 - 7 * z2 * z_r2 - 0.6 * r2),
+        ]
+    )
 
     # J4
     z_r4 = z_r2 * z_r2
-    f4 = -0.625 * J4 * MU_EARTH * R_EARTH ** 4 / r ** 7
-    a_j4 = np.column_stack([
-        f4 * x / r2 * (3 - 42 * z_r2 + 63 * z_r4),
-        f4 * y / r2 * (3 - 42 * z_r2 + 63 * z_r4),
-        f4 * z / r2 * (15 - 70 * z_r2 + 63 * z_r4),
-    ])
+    f4 = -0.625 * J4 * MU_EARTH * R_EARTH**4 / r**7
+    a_j4 = np.column_stack(
+        [
+            f4 * x / r2 * (3 - 42 * z_r2 + 63 * z_r4),
+            f4 * y / r2 * (3 - 42 * z_r2 + 63 * z_r4),
+            f4 * z / r2 * (15 - 70 * z_r2 + 63 * z_r4),
+        ]
+    )
 
     a_total = a_grav + a_j2 + a_j3 + a_j4
 
@@ -388,8 +404,8 @@ def propagate_batch(
     def batch_eom(t, y_flat):
         dydt = np.zeros_like(y_flat)
         for i in range(n_states):
-            s = y_flat[i * n_dim:(i + 1) * n_dim]
-            dydt[i * n_dim:(i + 1) * n_dim] = equations_of_motion(t, s, bstar)
+            s = y_flat[i * n_dim : (i + 1) * n_dim]
+            dydt[i * n_dim : (i + 1) * n_dim] = equations_of_motion(t, s, bstar)
         return dydt
 
     sol = solve_ivp(
@@ -409,7 +425,9 @@ def propagate_batch(
         return states.copy(), False
 
 
-def tle_to_state(line1: str, line2: str, epoch_offset_min: float = 0.0) -> np.ndarray | None:
+def tle_to_state(
+    line1: str, line2: str, epoch_offset_min: float = 0.0
+) -> np.ndarray | None:
     """Convert TLE lines to a state vector [x, y, z, vx, vy, vz] in TEME.
 
     Uses sgp4 to propagate to the TLE epoch (+ optional offset in minutes).
@@ -424,8 +442,14 @@ def tle_to_state(line1: str, line2: str, epoch_offset_min: float = 0.0) -> np.nd
         return None
 
     # sgp4 returns km and km/s — convert to m and m/s
-    state = np.array([
-        r[0] * 1000, r[1] * 1000, r[2] * 1000,
-        v[0] * 1000, v[1] * 1000, v[2] * 1000,
-    ])
+    state = np.array(
+        [
+            r[0] * 1000,
+            r[1] * 1000,
+            r[2] * 1000,
+            v[0] * 1000,
+            v[1] * 1000,
+            v[2] * 1000,
+        ]
+    )
     return state

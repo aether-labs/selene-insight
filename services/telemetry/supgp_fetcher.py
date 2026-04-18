@@ -61,9 +61,12 @@ FETCH_INTERVAL = 8 * 3600  # same cadence as Starlink fetcher
 
 async def _fetch_url(url: str) -> str:
     async with httpx.AsyncClient(timeout=60, verify=True) as client:
-        resp = await client.get(url, headers={
-            "User-Agent": "argusorb/0.2 (supgp-fetcher)",
-        })
+        resp = await client.get(
+            url,
+            headers={
+                "User-Agent": "argusorb/0.2 (supgp-fetcher)",
+            },
+        )
         resp.raise_for_status()
         return resp.text
 

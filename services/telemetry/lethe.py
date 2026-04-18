@@ -32,7 +32,9 @@ class Lethe:
         self._lock = threading.Lock()
         self._writes = 0
 
-    def put(self, key: str, value: dict[str, Any], timestamp: float | None = None) -> None:
+    def put(
+        self, key: str, value: dict[str, Any], timestamp: float | None = None
+    ) -> None:
         """Store a value with O(1) hash insertion.
 
         Args:
@@ -58,7 +60,9 @@ class Lethe:
             return None
         return json.loads(data)
 
-    def range(self, start_ts: float, end_ts: float, limit: int = 1000) -> list[dict[str, Any]]:
+    def range(
+        self, start_ts: float, end_ts: float, limit: int = 1000
+    ) -> list[dict[str, Any]]:
         """Time-range scan for dashboard rewind.
 
         Returns entries between start_ts and end_ts, ordered by time.

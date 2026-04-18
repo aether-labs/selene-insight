@@ -112,7 +112,7 @@ def _parse_tle_float(s: str) -> float:
         mantissa = float(f"{sign}0.{digits}") if digits else 0.0
     else:
         mantissa = float(f"0.{mantissa_str}")
-    return mantissa * (10 ** exp)
+    return mantissa * (10**exp)
 
 
 def parse_tle_text(text: str) -> tuple[list[dict], int]:
@@ -166,6 +166,7 @@ def parse_tle_text(text: str) -> tuple[list[dict], int]:
             epoch_day = float(line1[20:32])
             full_year = 1900 + epoch_year if epoch_year >= 57 else 2000 + epoch_year
             from sgp4.api import jday
+
             jan1_jd = jday(full_year, 1, 1, 0, 0, 0)[0]
             epoch_jd = jan1_jd + epoch_day - 1
 
@@ -241,9 +242,12 @@ def archive_raw(text: str, raw_dir: Path = RAW_DIR) -> Path:
 async def fetch_celestrak() -> str:
     """Fetch TLE text from Celestrak."""
     async with httpx.AsyncClient(timeout=30, verify=True) as client:
-        resp = await client.get(CELESTRAK_URL, headers={
-            "User-Agent": "argusorb/0.2 (starlink-tracker)",
-        })
+        resp = await client.get(
+            CELESTRAK_URL,
+            headers={
+                "User-Agent": "argusorb/0.2 (starlink-tracker)",
+            },
+        )
         resp.raise_for_status()
         return resp.text
 

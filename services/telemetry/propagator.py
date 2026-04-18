@@ -30,8 +30,9 @@ def propagate_single(sat: Satrec, timestamp: float) -> dict | None:
     Returns dict with lat, lon, alt_km, x/y/z ECI, or None on error.
     """
     dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
-    jd, fr = jday(dt.year, dt.month, dt.day,
-                  dt.hour, dt.minute, dt.second + dt.microsecond / 1e6)
+    jd, fr = jday(
+        dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second + dt.microsecond / 1e6
+    )
 
     e, r, v = sat.sgp4(jd, fr)
     if e != 0:
@@ -109,15 +110,17 @@ class Propagator:
             if pos is None:
                 continue
             meta = self._metadata.get(norad_id, {})
-            results.append({
-                "norad_id": norad_id,
-                "name": meta.get("name", ""),
-                "lat": round(pos["lat"], 4),
-                "lon": round(pos["lon"], 4),
-                "alt_km": round(pos["alt_km"], 1),
-                "shell_km": meta.get("shell_km", 0),
-                "status": meta.get("status", "active"),
-            })
+            results.append(
+                {
+                    "norad_id": norad_id,
+                    "name": meta.get("name", ""),
+                    "lat": round(pos["lat"], 4),
+                    "lon": round(pos["lon"], 4),
+                    "alt_km": round(pos["alt_km"], 1),
+                    "shell_km": meta.get("shell_km", 0),
+                    "status": meta.get("status", "active"),
+                }
+            )
         return results
 
     @property

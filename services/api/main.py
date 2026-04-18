@@ -39,6 +39,7 @@ def update_position_cache() -> None:
 
 # ── App ──
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     print("[API] ArgusOrb Starlink API started")
@@ -64,12 +65,17 @@ app.add_middleware(
 
 # ── Endpoints ──
 
+
 @app.get("/api/starlink/constellation")
 async def constellation(time_unix: float | None = Query(default=None)):
     """All satellite positions. Uses cache for current time, propagates for custom time."""
     if time_unix is not None:
         positions = propagator.propagate_all(time_unix)
-        return {"satellites": positions, "timestamp": time_unix, "count": len(positions)}
+        return {
+            "satellites": positions,
+            "timestamp": time_unix,
+            "count": len(positions),
+        }
     return _position_cache
 
 
@@ -84,6 +90,7 @@ async def satellite_detail(norad_id: int = Path(...)):
 
     # Current position
     from services.telemetry.propagator import propagate_single, tle_to_satrec
+
     pos = None
     if history:
         satrec = tle_to_satrec(history[0]["line1"], history[0]["line2"])
@@ -94,7 +101,9 @@ async def satellite_detail(norad_id: int = Path(...)):
     uncertainty = None
     if history and pos:
         latest = history[0]
-        tle_age_hours = max(0, (time.time() - (latest.get("fetched_at") or time.time())) / 3600)
+        tle_age_hours = max(
+            0, (time.time() - (latest.get("fetched_at") or time.time())) / 3600
+        )
         alt_km = pos.get("alt_km", 500)
         bstar = abs(latest.get("bstar") or 0)
 
@@ -118,10 +127,16 @@ async def satellite_detail(norad_id: int = Path(...)):
         "satellite": dict(sat),
         "position": pos,
         "uncertainty": uncertainty,
-        "tle_history": [{"epoch_jd": h["epoch_jd"], "mean_motion": h["mean_motion"],
-                         "inclination": h["inclination"], "eccentricity": h["eccentricity"],
-                         "bstar": h.get("bstar")}
-                        for h in history],
+        "tle_history": [
+            {
+                "epoch_jd": h["epoch_jd"],
+                "mean_motion": h["mean_motion"],
+                "inclination": h["inclination"],
+                "eccentricity": h["eccentricity"],
+                "bstar": h.get("bstar"),
+            }
+            for h in history
+        ],
         "tle_count": len(history),
     }
 
@@ -152,12 +167,15 @@ async def status():
         "satellites": stats["satellites"],
         "tle_records": stats["tle_records"],
         "anomalies": stats["anomalies"],
-        "position_cache_age_sec": round(time.time() - _position_cache.get("timestamp", 0), 1),
+        "position_cache_age_sec": round(
+            time.time() - _position_cache.get("timestamp", 0), 1
+        ),
         "ws_clients": len(_ws_clients),
     }
 
 
 # ── WebSocket ──
+
 
 @app.websocket("/ws/telemetry")
 async def ws_telemetry(ws: WebSocket):

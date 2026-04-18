@@ -6,7 +6,6 @@ Used by the Skeptic Agent to detect orbital maneuvers or sensor anomalies.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 
 # Physical constants
@@ -108,13 +107,17 @@ def check_anomaly(
     Returns:
         GravityPrediction with anomaly flag.
     """
-    pred = predict_velocity_change(earth_dist_km, moon_dist_km, dt_seconds, curr_velocity_kms)
+    pred = predict_velocity_change(
+        earth_dist_km, moon_dist_km, dt_seconds, curr_velocity_kms
+    )
 
     observed_dv = curr_velocity_kms - prev_velocity_kms
     pred.observed_dv_kms = observed_dv
 
     if abs(pred.predicted_dv_kms) > 1e-9:
-        pred.deviation_pct = abs(observed_dv - pred.predicted_dv_kms) / abs(pred.predicted_dv_kms) * 100
+        pred.deviation_pct = (
+            abs(observed_dv - pred.predicted_dv_kms) / abs(pred.predicted_dv_kms) * 100
+        )
     elif abs(observed_dv) > 1e-6:
         pred.deviation_pct = 100.0  # predicted zero change but observed non-zero
     else:

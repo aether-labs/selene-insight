@@ -10,7 +10,6 @@ physical predictions.
 from __future__ import annotations
 
 import json
-import time
 from dataclasses import dataclass
 
 try:
@@ -32,16 +31,19 @@ class InsightAlert:
     prediction: dict
 
     def to_json(self) -> str:
-        return json.dumps({
-            "type": "Insight_Alert",
-            "timestamp": self.timestamp,
-            "met": self.met,
-            "alert_type": self.alert_type,
-            "confidence": self.confidence,
-            "deviation_pct": round(self.deviation_pct, 4),
-            "details": self.details,
-            "prediction": self.prediction,
-        }, indent=2)
+        return json.dumps(
+            {
+                "type": "Insight_Alert",
+                "timestamp": self.timestamp,
+                "met": self.met,
+                "alert_type": self.alert_type,
+                "confidence": self.confidence,
+                "deviation_pct": round(self.deviation_pct, 4),
+                "details": self.details,
+                "prediction": self.prediction,
+            },
+            indent=2,
+        )
 
 
 class SkepticAgent:

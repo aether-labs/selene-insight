@@ -23,17 +23,21 @@ from __future__ import annotations
 # Wide enough to never reject a real satellite; tight enough to catch
 # parser/catalog bugs with high signal-to-noise.
 
-MIN_MEAN_MOTION = 0.5     # rev/day — below this is barely sub-GEO; real LEO is ~11-18
-MAX_MEAN_MOTION = 20.0    # rev/day — above this the orbit is inside the Earth
+MIN_MEAN_MOTION = 0.5  # rev/day — below this is barely sub-GEO; real LEO is ~11-18
+MAX_MEAN_MOTION = 20.0  # rev/day — above this the orbit is inside the Earth
 
-MIN_ECCENTRICITY = 0.0    # inclusive
-MAX_ECCENTRICITY = 1.0    # exclusive — ecc == 1 is parabolic, > 1 hyperbolic (escape)
+MIN_ECCENTRICITY = 0.0  # inclusive
+MAX_ECCENTRICITY = 1.0  # exclusive — ecc == 1 is parabolic, > 1 hyperbolic (escape)
 
-MIN_INCLINATION = 0.0     # inclusive
-MAX_INCLINATION = 180.0   # inclusive — 180° is a fully retrograde polar orbit
+MIN_INCLINATION = 0.0  # inclusive
+MAX_INCLINATION = 180.0  # inclusive — 180° is a fully retrograde polar orbit
 
-MIN_ALTITUDE_KM = 150.0   # below this, atmospheric drag gives days of orbital life at most
-MAX_ALTITUDE_KM = 50000.0 # well beyond GEO (~36,000 km); anything higher is a parse bug
+MIN_ALTITUDE_KM = (
+    150.0  # below this, atmospheric drag gives days of orbital life at most
+)
+MAX_ALTITUDE_KM = (
+    50000.0  # well beyond GEO (~36,000 km); anything higher is a parse bug
+)
 
 
 def _compute_checksum(line: str) -> int:

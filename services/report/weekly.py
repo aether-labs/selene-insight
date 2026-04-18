@@ -36,13 +36,15 @@ except ImportError:
 
 REPORT_SCHEMA_VERSION = 1
 AUTHORITATIVE_CLASSIFIER = "rule_v1"
-STALE_THRESHOLD_S = 7 * 86400       # "departed" = no TLE in 7 days
-CONSTELLATION_FRESHNESS_S = 86400   # "currently tracked" = last_seen within 24h
-TOP_FLAGS_FOR_EDITOR = 8            # how many high-confidence flags to surface
+STALE_THRESHOLD_S = 7 * 86400  # "departed" = no TLE in 7 days
+CONSTELLATION_FRESHNESS_S = 86400  # "currently tracked" = last_seen within 24h
+TOP_FLAGS_FOR_EDITOR = 8  # how many high-confidence flags to surface
 DEFAULT_REPORT_DIR = Path(os.environ.get("ARGUS_REPORTS_DIR", "reports"))
-SHELL_MIN_POPULATION = 100          # shells with fewer sats than this get bucketed into "other"
-MAX_LIST_ITEMS = 30                 # truncate new/departed/flagged lists beyond this in markdown
-MAX_PLAUSIBLE_NEW_PER_WEEK = 200    # if "new" count exceeds this, it's a data reset artifact, not real launches
+SHELL_MIN_POPULATION = 100  # shells with fewer sats than this get bucketed into "other"
+MAX_LIST_ITEMS = 30  # truncate new/departed/flagged lists beyond this in markdown
+MAX_PLAUSIBLE_NEW_PER_WEEK = (
+    200  # if "new" count exceeds this, it's a data reset artifact, not real launches
+)
 
 # Human-friendly ordering for the flagged-events table.
 CAUSE_ORDER = ["maneuver_candidate", "atmospheric_anomaly", "natural_decay", "reentry"]
@@ -56,6 +58,7 @@ ANOMALY_TYPE_ORDER = [
 
 
 # ── Time windowing ──
+
 
 def iso_week_bounds(year: int, week: int) -> tuple[float, float]:
     """Return (start_ts, end_ts) UTC timestamps for the ISO week.
@@ -114,6 +117,7 @@ def _shell_key(shell_km: float) -> str:
 
 
 # ── Report builder ──
+
 
 def build_report(
     store: StarlinkStore,
@@ -229,7 +233,7 @@ def build_report(
     elif len(fetches) == 1:
         longest_gap_s = 0
     else:
-        longest_gap_s = (end_ts - start_ts)  # full window = no data
+        longest_gap_s = end_ts - start_ts  # full window = no data
 
     data_quality = {
         "fetch_attempts": fetch_attempts,
@@ -268,7 +272,10 @@ def build_report(
 
 # ── Delta computation ──
 
-def _delta(current: int | float | None, previous: int | float | None) -> int | float | None:
+
+def _delta(
+    current: int | float | None, previous: int | float | None
+) -> int | float | None:
     if current is None or previous is None:
         return None
     return current - previous
@@ -313,6 +320,7 @@ def compute_deltas(current: dict, previous: dict | None) -> dict[str, Any]:
 
 
 # ── Renderers ──
+
 
 def _fmt_delta(d: int | float | None) -> str:
     if d is None:
@@ -407,7 +415,9 @@ def render_markdown(
     lines.append("")
     lines.append("| | Count | Δ vs prev week |")
     lines.append("|---|---:|---:|")
-    lines.append(f"| **Tracked Starlink** | **{const['total']:,}** | {constellation_delta} |")
+    lines.append(
+        f"| **Tracked Starlink** | **{const['total']:,}** | {constellation_delta} |"
+    )
     lines.extend(shell_rows)
     lines.append("")
 
@@ -419,7 +429,9 @@ def render_markdown(
         lines.append(f"*{new_note}*")
     elif new_rows:
         noun = "satellite" if len(new_rows) == 1 else "satellites"
-        lines.append(f"**{len(new_rows)} {noun}** first appeared in Celestrak during the window.")
+        lines.append(
+            f"**{len(new_rows)} {noun}** first appeared in Celestrak during the window."
+        )
         lines.append("")
         lines.append("| NORAD | Name | First seen | Shell |")
         lines.append("|---:|---|---|---:|")
@@ -450,7 +462,9 @@ def render_markdown(
         if len(departed_rows) > MAX_LIST_ITEMS:
             lines.extend(departed_rows[:MAX_LIST_ITEMS])
             lines.append("")
-            lines.append(f"*… and {len(departed_rows) - MAX_LIST_ITEMS} more (truncated).*")
+            lines.append(
+                f"*… and {len(departed_rows) - MAX_LIST_ITEMS} more (truncated).*"
+            )
         else:
             lines.extend(departed_rows)
     else:
@@ -481,7 +495,9 @@ def render_markdown(
     # Data quality
     lines.append("## Data quality")
     lines.append("")
-    lines.append("Transparency disclosure — we publish our own fetch audit so readers can discount our claims accordingly.")
+    lines.append(
+        "Transparency disclosure — we publish our own fetch audit so readers can discount our claims accordingly."
+    )
     lines.append("")
     lines.append("| | |")
     lines.append("|---|---:|")
@@ -520,11 +536,12 @@ def _render_auto_notable(top_flags: list[dict]) -> str:
         norad = f["norad_id"]
         details = f.get("details") or ""
         lines.append(
-            f"- **{name}** ({norad}) — `{f.get('cause')}` "
-            f"(conf {conf_str}). {details}"
+            f"- **{name}** ({norad}) — `{f.get('cause')}` (conf {conf_str}). {details}"
         )
     lines.append("")
-    lines.append("_Auto-generated from top-N by confidence. Prefer hand-written editor notes for the final report._")
+    lines.append(
+        "_Auto-generated from top-N by confidence. Prefer hand-written editor notes for the final report._"
+    )
     return "\n".join(lines)
 
 
@@ -549,6 +566,7 @@ def render_json(report: dict) -> str:
 
 # ── Persistence ──
 
+
 def load_previous_report(reports_dir: Path, iso_week: str) -> dict | None:
     """Load the report JSON for the week immediately preceding iso_week, if present."""
     try:
@@ -571,6 +589,7 @@ def load_previous_report(reports_dir: Path, iso_week: str) -> dict | None:
 
 # ── CLI ──
 
+
 def _build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="python -m services.report.weekly",
@@ -584,13 +603,13 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         type=Path,
         default=DEFAULT_REPORT_DIR,
         help=f"Where to write reports (default: {DEFAULT_REPORT_DIR}, "
-             f"override with ARGUS_REPORTS_DIR env var)",
+        f"override with ARGUS_REPORTS_DIR env var)",
     )
     p.add_argument(
         "--editor-notes",
         type=Path,
         help="Path to a markdown file that replaces the auto-generated "
-             "'Notable flags' section. Recommended for every published report.",
+        "'Notable flags' section. Recommended for every published report.",
     )
     p.add_argument(
         "--format",
@@ -637,12 +656,16 @@ def main(argv: list[str] | None = None) -> int:
         wrote.append(path)
     if args.format in ("md", "both"):
         path = args.output_dir / f"{iso_week}.md"
-        path.write_text(render_markdown(report, previous=previous, editor_notes=editor_notes))
+        path.write_text(
+            render_markdown(report, previous=previous, editor_notes=editor_notes)
+        )
         wrote.append(path)
 
-    print(f"[weekly] {iso_week}: {report['constellation']['total']:,} tracked, "
-          f"{report['flagged_events']['total']} labels, "
-          f"{report['data_quality']['fetch_attempts']} fetches")
+    print(
+        f"[weekly] {iso_week}: {report['constellation']['total']:,} tracked, "
+        f"{report['flagged_events']['total']} labels, "
+        f"{report['data_quality']['fetch_attempts']} fetches"
+    )
     for p in wrote:
         print(f"  wrote {p}")
     return 0

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
@@ -23,14 +23,14 @@ class ValidationResult:
     horizons_point: dict
 
     # Deviations
-    velocity_pct: float      # % difference in velocity
-    earth_dist_pct: float    # % difference in earth distance
-    moon_dist_pct: float     # % difference in moon distance
-    position_km: float       # absolute position difference (km) if 3D available
+    velocity_pct: float  # % difference in velocity
+    earth_dist_pct: float  # % difference in earth distance
+    moon_dist_pct: float  # % difference in moon distance
+    position_km: float  # absolute position difference (km) if 3D available
 
     # Overall
-    confidence: float        # 0.0 - 1.0, how much we trust issinfo
-    grade: str               # "excellent" | "good" | "degraded" | "suspect"
+    confidence: float  # 0.0 - 1.0, how much we trust issinfo
+    grade: str  # "excellent" | "good" | "degraded" | "suspect"
     details: str
 
     def to_dict(self) -> dict:
@@ -87,10 +87,10 @@ class CrossValidator:
 
     def __init__(
         self,
-        excellent_threshold: float = 0.5,   # < 0.5% = excellent
-        good_threshold: float = 2.0,        # < 2% = good
-        degraded_threshold: float = 5.0,    # < 5% = degraded, else suspect
-        time_tolerance_sec: float = 10.0,   # max age diff for pairing
+        excellent_threshold: float = 0.5,  # < 0.5% = excellent
+        good_threshold: float = 2.0,  # < 2% = good
+        degraded_threshold: float = 5.0,  # < 5% = degraded, else suspect
+        time_tolerance_sec: float = 10.0,  # max age diff for pairing
     ) -> None:
         self._thresholds = (excellent_threshold, good_threshold, degraded_threshold)
         self._time_tolerance = time_tolerance_sec
@@ -106,14 +106,17 @@ class CrossValidator:
         # Running stats
         self.total_validations = 0
         self.grades: dict[str, int] = {
-            "excellent": 0, "good": 0, "degraded": 0, "suspect": 0,
+            "excellent": 0,
+            "good": 0,
+            "degraded": 0,
+            "suspect": 0,
         }
 
     def update_issinfo(self, point: dict) -> None:
         """Buffer an issinfo telemetry point."""
         self._issinfo_buffer.append(point)
         if len(self._issinfo_buffer) > self._max_buffer:
-            self._issinfo_buffer = self._issinfo_buffer[-self._max_buffer:]
+            self._issinfo_buffer = self._issinfo_buffer[-self._max_buffer :]
 
     def validate(self, horizons_point: dict) -> ValidationResult | None:
         """Cross-validate against the nearest issinfo reading.
@@ -198,7 +201,7 @@ class CrossValidator:
 
         self._results.append(result)
         if len(self._results) > self._max_results:
-            self._results = self._results[-self._max_results:]
+            self._results = self._results[-self._max_results :]
 
         self.total_validations += 1
         self.grades[grade] += 1

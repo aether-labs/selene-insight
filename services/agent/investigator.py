@@ -41,6 +41,7 @@ except ImportError:
 
 # ── Analysis helpers ──
 
+
 def _analyze_tle_timeseries(history: list[dict]) -> dict[str, Any]:
     """Find jumps and trends in the TLE time series."""
     if len(history) < 2:
@@ -48,8 +49,11 @@ def _analyze_tle_timeseries(history: list[dict]) -> dict[str, Any]:
 
     # history[0] is newest, history[-1] is oldest
     eccs = [(h.get("epoch_jd", 0), h.get("eccentricity") or 0) for h in history]
-    bstars = [(h.get("epoch_jd", 0), h.get("bstar")) for h in history
-              if h.get("bstar") is not None]
+    bstars = [
+        (h.get("epoch_jd", 0), h.get("bstar"))
+        for h in history
+        if h.get("bstar") is not None
+    ]
     mms = [(h.get("epoch_jd", 0), h.get("mean_motion") or 0) for h in history]
 
     # Biggest eccentricity jump between consecutive TLEs
@@ -64,7 +68,10 @@ def _analyze_tle_timeseries(history: list[dict]) -> dict[str, Any]:
 
     result: dict[str, Any] = {
         "n_tles": len(history),
-        "epoch_range_jd": [history[-1].get("epoch_jd", 0), history[0].get("epoch_jd", 0)],
+        "epoch_range_jd": [
+            history[-1].get("epoch_jd", 0),
+            history[0].get("epoch_jd", 0),
+        ],
         "ecc_range": [min(e[1] for e in eccs), max(e[1] for e in eccs)],
         "ecc_current": eccs[0][1],
         "mm_current": mms[0][1],
@@ -74,7 +81,7 @@ def _analyze_tle_timeseries(history: list[dict]) -> dict[str, Any]:
     if jump_idx is not None and max_ecc_jump > 0.001:
         result["ecc_jump_detected"] = True
         result["ecc_before"] = eccs[jump_idx + 1][1]  # older
-        result["ecc_after"] = eccs[jump_idx][1]        # newer
+        result["ecc_after"] = eccs[jump_idx][1]  # newer
         result["jump_epoch_jd"] = eccs[jump_idx][0]
     else:
         result["ecc_jump_detected"] = False
@@ -85,9 +92,11 @@ def _analyze_tle_timeseries(history: list[dict]) -> dict[str, Any]:
         result["bstar_current"] = bstars[0][1]
         # Sign changes (excluding near-zero noise)
         sign_changes = sum(
-            1 for i in range(len(bstars) - 1)
+            1
+            for i in range(len(bstars) - 1)
             if (bstars[i][1] > 0) != (bstars[i + 1][1] > 0)
-            and abs(bstars[i][1]) > 1e-5 and abs(bstars[i + 1][1]) > 1e-5
+            and abs(bstars[i][1]) > 1e-5
+            and abs(bstars[i + 1][1]) > 1e-5
         )
         result["bstar_sign_changes"] = sign_changes
 
@@ -122,15 +131,22 @@ def _compare_to_batch(
         "batch_avg_mm": avg_mm,
         "batch_avg_bstar": avg_bstar,
         "target_bstar": target_bstar,
-        "bstar_ratio": abs(target_bstar) / abs(avg_bstar) if abs(avg_bstar) > 1e-8 else None,
+        "bstar_ratio": abs(target_bstar) / abs(avg_bstar)
+        if abs(avg_bstar) > 1e-8
+        else None,
     }
 
 
 def _analyze_rf_status(observations: list[dict]) -> dict[str, Any]:
     """Summarize SatNOGS RF observation results."""
     if not observations:
-        return {"status": "no_observations", "total_count": 0,
-                "good_count": 0, "failed_count": 0, "unknown_count": 0}
+        return {
+            "status": "no_observations",
+            "total_count": 0,
+            "good_count": 0,
+            "failed_count": 0,
+            "unknown_count": 0,
+        }
 
     statuses = Counter(o.get("vetted_status", "unknown") for o in observations)
     return {
@@ -165,7 +181,9 @@ def _assess_severity(evidence: dict) -> dict[str, Any]:
         else:
             # Gradual divergence = likely deorbiting, not debris
             score += 1
-            reasons.append(f"eccentricity {ecc_ratio:.1f}× batch average (gradual — likely deorbit)")
+            reasons.append(
+                f"eccentricity {ecc_ratio:.1f}× batch average (gradual — likely deorbit)"
+            )
     elif ecc_ratio and ecc_ratio > 2:
         score += 1
         reasons.append(f"eccentricity {ecc_ratio:.1f}× batch average")
@@ -288,6 +306,7 @@ def _draft_paragraph(evidence: dict) -> str:
 
 # ── Main pipeline ──
 
+
 def investigate_satellite(
     store: StarlinkStore,
     norad_id: int,
@@ -352,12 +371,14 @@ def investigate_all_gaps(store: StarlinkStore) -> list[dict]:
     Returns a list of evidence dicts, sorted by severity score (highest first).
     """
     from services.brain.orbital_analyzer import detect_tle_gaps
+
     gaps = detect_tle_gaps(store)
     results = []
     for gap in gaps:
         norad_id = gap["norad_id"]
         evidence = investigate_satellite(
-            store, norad_id,
+            store,
+            norad_id,
             context=f"TLE gap {gap.get('gap_hours', 0):.0f}h",
         )
         results.append(evidence)
@@ -367,6 +388,7 @@ def investigate_all_gaps(store: StarlinkStore) -> list[dict]:
 
 # ── CLI ──
 
+
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
@@ -374,13 +396,18 @@ def main(argv: list[str] | None = None) -> int:
         prog="python -m services.agent.investigator",
         description="Investigate a satellite and produce an event assessment.",
     )
-    parser.add_argument("norad_id", type=int, nargs="?",
-                        help="NORAD catalog ID to investigate")
-    parser.add_argument("--all-gaps", action="store_true",
-                        help="Investigate all satellites with TLE gaps >24h")
+    parser.add_argument(
+        "norad_id", type=int, nargs="?", help="NORAD catalog ID to investigate"
+    )
+    parser.add_argument(
+        "--all-gaps",
+        action="store_true",
+        help="Investigate all satellites with TLE gaps >24h",
+    )
     parser.add_argument("--db", help="Path to SQLite store")
-    parser.add_argument("--json", action="store_true",
-                        help="Output full evidence as JSON")
+    parser.add_argument(
+        "--json", action="store_true", help="Output full evidence as JSON"
+    )
     args = parser.parse_args(argv)
 
     db_path = args.db or os.environ.get("ARGUS_DB_PATH", "data/starlink.db")
@@ -391,8 +418,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Investigated {len(results)} gapped satellites\n")
         for ev in results:
             sev = ev.get("severity", {})
-            print(f"[{sev.get('severity', '?'):>8s}] score={sev.get('score', 0)}  "
-                  f"{ev.get('satellite', {}).get('name') or ev['norad_id']}")
+            print(
+                f"[{sev.get('severity', '?'):>8s}] score={sev.get('score', 0)}  "
+                f"{ev.get('satellite', {}).get('name') or ev['norad_id']}"
+            )
             print(f"  {ev.get('draft', '')}")
             print()
         return 0
@@ -405,14 +434,16 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.json:
         import json
+
         # Remove non-serializable items
-        clean = {k: v for k, v in evidence.items()
-                 if k not in ("satellite",)}
+        clean = {k: v for k, v in evidence.items() if k not in ("satellite",)}
         print(json.dumps(clean, indent=2, default=str))
     else:
         sat = evidence.get("satellite") or {}
-        print(f"=== Investigation: {sat.get('name') or args.norad_id} "
-              f"(NORAD {args.norad_id}) ===")
+        print(
+            f"=== Investigation: {sat.get('name') or args.norad_id} "
+            f"(NORAD {args.norad_id}) ==="
+        )
         print(f"Severity: {sev.get('severity', '?')} (score {sev.get('score', 0)})")
         print(f"Reasons: {', '.join(sev.get('reasons', []))}")
         print()
@@ -420,29 +451,37 @@ def main(argv: list[str] | None = None) -> int:
         tle = evidence.get("tle_analysis", {})
         print(f"TLE history: {tle.get('n_tles', 0)} records")
         if tle.get("ecc_jump_detected"):
-            print(f"  ⚠ Eccentricity jump: {tle['ecc_before']:.6f} → {tle['ecc_after']:.6f} "
-                  f"(Δ={tle['max_ecc_jump']:.4f})")
-        print(f"  ecc range: {tle.get('ecc_range', [0,0])[0]:.6f} – {tle.get('ecc_range', [0,0])[1]:.6f}")
+            print(
+                f"  ⚠ Eccentricity jump: {tle['ecc_before']:.6f} → {tle['ecc_after']:.6f} "
+                f"(Δ={tle['max_ecc_jump']:.4f})"
+            )
+        print(
+            f"  ecc range: {tle.get('ecc_range', [0, 0])[0]:.6f} – {tle.get('ecc_range', [0, 0])[1]:.6f}"
+        )
         if "bstar_current" in tle:
             print(f"  B* current: {tle['bstar_current']:+.3e}")
 
         batch = evidence.get("batch_analysis", {})
         if batch.get("ecc_ratio"):
             print(f"\nBatch comparison ({batch['batch_size']} siblings):")
-            print(f"  ecc: {batch['target_ecc']:.6f} vs avg {batch['batch_avg_ecc']:.6f} "
-                  f"({batch['ecc_ratio']:.1f}×)")
+            print(
+                f"  ecc: {batch['target_ecc']:.6f} vs avg {batch['batch_avg_ecc']:.6f} "
+                f"({batch['ecc_ratio']:.1f}×)"
+            )
 
         rf = evidence.get("rf_analysis", {})
         if rf.get("total_count", 0) > 0:
-            print(f"\nSatNOGS RF: {rf['good_count']} good / {rf['failed_count']} failed / "
-                  f"{rf['unknown_count']} unknown")
+            print(
+                f"\nSatNOGS RF: {rf['good_count']} good / {rf['failed_count']} failed / "
+                f"{rf['unknown_count']} unknown"
+            )
 
         neighbors = evidence.get("new_neighbors", [])
         if neighbors:
             print(f"\nNew orbital neighbors: {len(neighbors)}")
 
         print(f"\nElapsed: {evidence.get('elapsed_ms', 0)}ms")
-        print(f"\n--- Draft Notable Flag ---")
+        print("\n--- Draft Notable Flag ---")
         print(evidence.get("draft", "(no draft)"))
 
     return 0

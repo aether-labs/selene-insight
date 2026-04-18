@@ -20,9 +20,13 @@ from typing import Callable
 import numpy as np
 
 
-def _sigma_points(x: np.ndarray, P: np.ndarray, alpha: float = 1e-3,
-                  beta: float = 2.0, kappa: float = 0.0
-                  ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _sigma_points(
+    x: np.ndarray,
+    P: np.ndarray,
+    alpha: float = 1e-3,
+    beta: float = 2.0,
+    kappa: float = 0.0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Generate 2n+1 sigma points and their weights.
 
     Args:
@@ -122,16 +126,17 @@ class UKF:
         self.P = np.eye(n_state)
 
         # Noise covariances
-        self.Q = np.eye(n_state) * 1e-6    # process noise
-        self.R = np.eye(n_obs) * 1e-4       # observation noise
+        self.Q = np.eye(n_state) * 1e-6  # process noise
+        self.R = np.eye(n_obs) * 1e-4  # observation noise
 
         # Innovation (for diagnostics / IMM)
         self.innovation = np.zeros(n_obs)
         self.innovation_cov = np.eye(n_obs)
         self.log_likelihood = 0.0
 
-    def predict(self, dt: float, fx_args: tuple = (),
-                batch_fx: callable | None = None) -> None:
+    def predict(
+        self, dt: float, fx_args: tuple = (), batch_fx: callable | None = None
+    ) -> None:
         """Predict step: propagate sigma points through dynamics.
 
         Args:
@@ -224,9 +229,10 @@ class UKF:
         try:
             sign, logdet = np.linalg.slogdet(S)
             if sign > 0:
-                self.log_likelihood = (
-                    -0.5 * (m * np.log(2 * np.pi) + logdet
-                            + self.innovation @ np.linalg.solve(S, self.innovation))
+                self.log_likelihood = -0.5 * (
+                    m * np.log(2 * np.pi)
+                    + logdet
+                    + self.innovation @ np.linalg.solve(S, self.innovation)
                 )
             else:
                 self.log_likelihood = -1e10

@@ -7,25 +7,36 @@ import os
 
 def _make_store():
     from services.telemetry.store import StarlinkStore
+
     db = tempfile.mktemp(suffix=".db")
     return StarlinkStore(db), db
 
 
 SAMPLE_TLES = [
     {
-        "norad_id": 44714, "epoch_jd": 2460400.5,
+        "norad_id": 44714,
+        "epoch_jd": 2460400.5,
         "line1": "1 44714C 19074B   26102.88173611  .00004936  00000+0  14452-3 0  1023",
         "line2": "2 44714  53.1552  19.3277 0003480 144.5700 243.9067 15.34670756    14",
-        "name": "STARLINK-1008", "inclination": 53.15, "mean_motion": 15.347,
-        "eccentricity": 0.000348, "shell_km": 550, "intl_designator": "19074B",
+        "name": "STARLINK-1008",
+        "inclination": 53.15,
+        "mean_motion": 15.347,
+        "eccentricity": 0.000348,
+        "shell_km": 550,
+        "intl_designator": "19074B",
         "launch_group": "19074",
     },
     {
-        "norad_id": 44718, "epoch_jd": 2460400.5,
+        "norad_id": 44718,
+        "epoch_jd": 2460400.5,
         "line1": "1 44718C 19074F   26102.82965278 -.00009195  00000+0 -27482-3 0  1020",
         "line2": "2 44718  53.1593  19.8308 0003906 134.6049 336.9563 15.34025274    15",
-        "name": "STARLINK-1012", "inclination": 53.16, "mean_motion": 15.340,
-        "eccentricity": 0.000391, "shell_km": 550, "intl_designator": "19074F",
+        "name": "STARLINK-1012",
+        "inclination": 53.16,
+        "mean_motion": 15.340,
+        "eccentricity": 0.000391,
+        "shell_km": 550,
+        "intl_designator": "19074F",
         "launch_group": "19074",
     },
 ]
@@ -56,11 +67,17 @@ def test_store_crud():
 def test_store_anomaly():
     store, db = _make_store()
     store.upsert_tles(SAMPLE_TLES)
-    store.insert_anomaly({
-        "norad_id": 44714, "anomaly_type": "altitude_change",
-        "altitude_before_km": 550, "altitude_after_km": 540,
-        "cause": "maneuver", "confidence": 0.8, "classified_by": "delta_v_rule",
-    })
+    store.insert_anomaly(
+        {
+            "norad_id": 44714,
+            "anomaly_type": "altitude_change",
+            "altitude_before_km": 550,
+            "altitude_after_km": 540,
+            "cause": "maneuver",
+            "confidence": 0.8,
+            "classified_by": "delta_v_rule",
+        }
+    )
     anomalies = store.get_anomalies()
     assert len(anomalies) == 1
     assert anomalies[0]["anomaly_type"] == "altitude_change"
@@ -73,12 +90,17 @@ def test_store_anomaly():
 def test_store_fetch_log():
     store, db = _make_store()
     store.log_fetch(
-        status="ok", http_bytes=12345, parsed_count=100,
-        new_tle_count=42, parse_errors=0, duration_ms=830,
+        status="ok",
+        http_bytes=12345,
+        parsed_count=100,
+        new_tle_count=42,
+        parse_errors=0,
+        duration_ms=830,
         raw_archive_path="data/raw/20260412/celestrak-20260412-120000.tle.gz",
     )
     store.log_fetch(
-        status="error", duration_ms=5000,
+        status="error",
+        duration_ms=5000,
         error_msg="ReadTimeout: timed out",
     )
     log = store.get_fetch_log()
@@ -173,9 +195,13 @@ def test_store_migration_from_v1():
     assert store.stats["fetches"] == 1
 
     # anomaly.cause column must exist.
-    store.insert_anomaly({
-        "norad_id": 44714, "anomaly_type": "decay", "cause": "natural_decay",
-    })
+    store.insert_anomaly(
+        {
+            "norad_id": 44714,
+            "anomaly_type": "decay",
+            "cause": "natural_decay",
+        }
+    )
     anoms = store.get_anomalies()
     assert anoms[0]["cause"] == "natural_decay"
 
@@ -259,8 +285,12 @@ ALSO-NOT-A-TLE"""
 
 # ── Cleaning layer (tle_validator) ──
 
-VALID_TLE_1008_L1 = "1 44714C 19074B   26102.88173611  .00004936  00000+0  14452-3 0  1023"
-VALID_TLE_1008_L2 = "2 44714  53.1552  19.3277 0003480 144.5700 243.9067 15.34670756    14"
+VALID_TLE_1008_L1 = (
+    "1 44714C 19074B   26102.88173611  .00004936  00000+0  14452-3 0  1023"
+)
+VALID_TLE_1008_L2 = (
+    "2 44714  53.1552  19.3277 0003480 144.5700 243.9067 15.34670756    14"
+)
 
 
 def test_checksum_algorithm():
@@ -270,7 +300,9 @@ def test_checksum_algorithm():
     assert _compute_checksum(VALID_TLE_1008_L1) == 3
     assert _compute_checksum(VALID_TLE_1008_L2) == 4
     # Line with a real minus sign in the middle
-    l1_with_minus = "1 44718C 19074F   26102.82965278 -.00009195  00000+0 -27482-3 0  1020"
+    l1_with_minus = (
+        "1 44718C 19074F   26102.82965278 -.00009195  00000+0 -27482-3 0  1020"
+    )
     assert _compute_checksum(l1_with_minus) == 0
 
 
@@ -312,7 +344,9 @@ def test_validate_structure_rejects_norad_mismatch():
 
     # Same line 2 but NORAD 44714 → 44715 AND checksum rewritten from 4 → 5
     # (single digit change in NORAD shifts the sum by +1, so new checksum = 5).
-    mismatch_l2 = "2 44715  53.1552  19.3277 0003480 144.5700 243.9067 15.34670756    15"
+    mismatch_l2 = (
+        "2 44715  53.1552  19.3277 0003480 144.5700 243.9067 15.34670756    15"
+    )
     ok, reason = validate_tle_structure(VALID_TLE_1008_L1, mismatch_l2)
     assert ok is False
     assert reason == "norad_mismatch"
@@ -322,8 +356,10 @@ def test_validate_physics_accepts_normal_starlink():
     from services.telemetry.tle_validator import validate_tle_physics
 
     parsed = {
-        "mean_motion": 15.34, "eccentricity": 0.000348,
-        "inclination": 53.15, "alt_km": 550.0,
+        "mean_motion": 15.34,
+        "eccentricity": 0.000348,
+        "inclination": 53.15,
+        "alt_km": 550.0,
     }
     assert validate_tle_physics(parsed) == (True, None)
 
@@ -332,8 +368,10 @@ def test_validate_physics_rejects_hyperbolic_eccentricity():
     from services.telemetry.tle_validator import validate_tle_physics
 
     parsed = {
-        "mean_motion": 15.34, "eccentricity": 1.2,  # escape trajectory
-        "inclination": 53.15, "alt_km": 550.0,
+        "mean_motion": 15.34,
+        "eccentricity": 1.2,  # escape trajectory
+        "inclination": 53.15,
+        "alt_km": 550.0,
     }
     ok, reason = validate_tle_physics(parsed)
     assert ok is False
@@ -345,8 +383,10 @@ def test_validate_physics_rejects_impossible_mean_motion():
 
     for mm in (0.0, -1.0, 50.0):
         parsed = {
-            "mean_motion": mm, "eccentricity": 0.0003,
-            "inclination": 53.15, "alt_km": 550.0,
+            "mean_motion": mm,
+            "eccentricity": 0.0003,
+            "inclination": 53.15,
+            "alt_km": 550.0,
         }
         ok, reason = validate_tle_physics(parsed)
         assert ok is False
@@ -358,8 +398,10 @@ def test_validate_physics_rejects_out_of_range_inclination():
 
     for incl in (-10.0, 181.0, 360.0):
         parsed = {
-            "mean_motion": 15.34, "eccentricity": 0.0003,
-            "inclination": incl, "alt_km": 550.0,
+            "mean_motion": 15.34,
+            "eccentricity": 0.0003,
+            "inclination": incl,
+            "alt_km": 550.0,
         }
         ok, reason = validate_tle_physics(parsed)
         assert ok is False
@@ -371,8 +413,10 @@ def test_validate_physics_rejects_altitude_inside_earth():
 
     for alt in (0.0, 100.0, 149.9):
         parsed = {
-            "mean_motion": 15.34, "eccentricity": 0.0003,
-            "inclination": 53.15, "alt_km": alt,
+            "mean_motion": 15.34,
+            "eccentricity": 0.0003,
+            "inclination": 53.15,
+            "alt_km": alt,
         }
         ok, reason = validate_tle_physics(parsed)
         assert ok is False
@@ -418,12 +462,16 @@ def test_parser_extracts_bstar():
     """parse_tle_text must populate bstar in the returned dict."""
     from services.telemetry.tle_fetcher import parse_tle_text
 
-    text = "\n".join([
-        "STARLINK-1008", VALID_TLE_1008_L1, VALID_TLE_1008_L2,
-        "STARLINK-1012",
-        "1 44718C 19074F   26102.82965278 -.00009195  00000+0 -27482-3 0  1020",
-        "2 44718  53.1593  19.8308 0003906 134.6049 336.9563 15.34025274    15",
-    ])
+    text = "\n".join(
+        [
+            "STARLINK-1008",
+            VALID_TLE_1008_L1,
+            VALID_TLE_1008_L2,
+            "STARLINK-1012",
+            "1 44718C 19074F   26102.82965278 -.00009195  00000+0 -27482-3 0  1020",
+            "2 44718  53.1593  19.8308 0003906 134.6049 336.9563 15.34025274    15",
+        ]
+    )
     tles, errors = parse_tle_text(text)
     assert len(tles) == 2
     assert errors == 0
@@ -525,11 +573,18 @@ def test_store_migration_v3_to_v4():
 
     # New writes with bstar work end-to-end.
     new_tle = {
-        "norad_id": 44714, "epoch_jd": 2460401.0,
-        "line1": "x", "line2": "y", "name": "STARLINK-1008",
-        "inclination": 53.15, "mean_motion": 15.34, "eccentricity": 0.0003,
+        "norad_id": 44714,
+        "epoch_jd": 2460401.0,
+        "line1": "x",
+        "line2": "y",
+        "name": "STARLINK-1008",
+        "inclination": 53.15,
+        "mean_motion": 15.34,
+        "eccentricity": 0.0003,
         "bstar": 1.4452e-4,
-        "shell_km": 550, "intl_designator": "19074B", "launch_group": "19074",
+        "shell_km": 550,
+        "intl_designator": "19074B",
+        "launch_group": "19074",
     }
     store.upsert_tles([new_tle])
     history = store.get_satellite_history(44714, limit=5)
@@ -545,10 +600,16 @@ def test_parse_tle_text_rejects_bad_checksum_end_to_end():
     # First triplet is valid; second has a flipped checksum on line 1.
     second_l1_bad = "1 44718C 19074F   26102.82965278 -.00009195  00000+0 -27482-3 0  1029"  # was ...0
     second_l2 = "2 44718  53.1593  19.8308 0003906 134.6049 336.9563 15.34025274    15"
-    text = "\n".join([
-        "STARLINK-1008", VALID_TLE_1008_L1, VALID_TLE_1008_L2,
-        "STARLINK-1012", second_l1_bad, second_l2,
-    ])
+    text = "\n".join(
+        [
+            "STARLINK-1008",
+            VALID_TLE_1008_L1,
+            VALID_TLE_1008_L2,
+            "STARLINK-1012",
+            second_l1_bad,
+            second_l2,
+        ]
+    )
 
     tles, errors = parse_tle_text(text)
     # Exactly one TLE survives; the corrupted one is rejected.
@@ -572,10 +633,20 @@ def test_archive_raw(tmp_path):
 def test_orbital_analyzer():
     from services.brain.orbital_analyzer import analyze_tle_pair
 
-    old = {"norad_id": 44714, "mean_motion": 15.34, "eccentricity": 0.0003,
-           "epoch_jd": 2460400.0, "inclination": 53.15}
-    new = {"norad_id": 44714, "mean_motion": 15.50, "eccentricity": 0.0003,
-           "epoch_jd": 2460401.0, "inclination": 53.15}
+    old = {
+        "norad_id": 44714,
+        "mean_motion": 15.34,
+        "eccentricity": 0.0003,
+        "epoch_jd": 2460400.0,
+        "inclination": 53.15,
+    }
+    new = {
+        "norad_id": 44714,
+        "mean_motion": 15.50,
+        "eccentricity": 0.0003,
+        "epoch_jd": 2460401.0,
+        "inclination": 53.15,
+    }
 
     anomaly = analyze_tle_pair(old, new)
     assert anomaly is not None
@@ -590,11 +661,21 @@ def test_orbital_analyzer():
 def test_orbital_analyzer_inclination_shift():
     from services.brain.orbital_analyzer import analyze_tle_pair
 
-    old = {"norad_id": 44714, "mean_motion": 15.34, "eccentricity": 0.0003,
-           "epoch_jd": 2460400.0, "inclination": 53.15}
+    old = {
+        "norad_id": 44714,
+        "mean_motion": 15.34,
+        "eccentricity": 0.0003,
+        "epoch_jd": 2460400.0,
+        "inclination": 53.15,
+    }
     # 0.2° plane change — far beyond TLE noise.
-    new = {"norad_id": 44714, "mean_motion": 15.34, "eccentricity": 0.0003,
-           "epoch_jd": 2460401.0, "inclination": 53.35}
+    new = {
+        "norad_id": 44714,
+        "mean_motion": 15.34,
+        "eccentricity": 0.0003,
+        "epoch_jd": 2460401.0,
+        "inclination": 53.35,
+    }
 
     anomaly = analyze_tle_pair(old, new)
     assert anomaly is not None
@@ -608,12 +689,22 @@ def test_orbital_analyzer_bstar_sign_flip():
 
     # Small altitude change (within 10 km threshold), but B* flips sign.
     # Both |B*| > 5e-3 (the raised floor — only large-B* regime sats).
-    old = {"norad_id": 44714, "mean_motion": 15.340, "eccentricity": 0.000348,
-           "epoch_jd": 2460400.0, "inclination": 53.15,
-           "bstar": 1.0e-2}
-    new = {"norad_id": 44714, "mean_motion": 15.341, "eccentricity": 0.000350,
-           "epoch_jd": 2460401.0, "inclination": 53.15,
-           "bstar": -1.2e-2}
+    old = {
+        "norad_id": 44714,
+        "mean_motion": 15.340,
+        "eccentricity": 0.000348,
+        "epoch_jd": 2460400.0,
+        "inclination": 53.15,
+        "bstar": 1.0e-2,
+    }
+    new = {
+        "norad_id": 44714,
+        "mean_motion": 15.341,
+        "eccentricity": 0.000350,
+        "epoch_jd": 2460401.0,
+        "inclination": 53.15,
+        "bstar": -1.2e-2,
+    }
 
     anomaly = analyze_tle_pair(old, new)
     assert anomaly is not None
@@ -628,12 +719,22 @@ def test_orbital_analyzer_bstar_sign_flip_below_floor_ignored():
 
     # Typical Starlink cycling — |B*| = 1e-3 is below the 5e-3 floor.
     # This is normal operational rhythm, not an anomaly.
-    old = {"norad_id": 44714, "mean_motion": 15.340, "eccentricity": 0.000348,
-           "epoch_jd": 2460400.0, "inclination": 53.15,
-           "bstar": 1e-3}
-    new = {"norad_id": 44714, "mean_motion": 15.341, "eccentricity": 0.000350,
-           "epoch_jd": 2460401.0, "inclination": 53.15,
-           "bstar": -1.2e-3}
+    old = {
+        "norad_id": 44714,
+        "mean_motion": 15.340,
+        "eccentricity": 0.000348,
+        "epoch_jd": 2460400.0,
+        "inclination": 53.15,
+        "bstar": 1e-3,
+    }
+    new = {
+        "norad_id": 44714,
+        "mean_motion": 15.341,
+        "eccentricity": 0.000350,
+        "epoch_jd": 2460401.0,
+        "inclination": 53.15,
+        "bstar": -1.2e-3,
+    }
 
     assert analyze_tle_pair(old, new) is None
 
@@ -643,12 +744,22 @@ def test_orbital_analyzer_bstar_magnitude_jump():
     from services.brain.orbital_analyzer import analyze_tle_pair
 
     # B* triples from 5e-3 to 1.6e-2: ratio = 220% > 200%, |Δ| = 1.1e-2 > 5e-3.
-    old = {"norad_id": 44714, "mean_motion": 15.340, "eccentricity": 0.000348,
-           "epoch_jd": 2460400.0, "inclination": 53.15,
-           "bstar": 5.0e-3}
-    new = {"norad_id": 44714, "mean_motion": 15.341, "eccentricity": 0.000350,
-           "epoch_jd": 2460401.0, "inclination": 53.15,
-           "bstar": 1.6e-2}
+    old = {
+        "norad_id": 44714,
+        "mean_motion": 15.340,
+        "eccentricity": 0.000348,
+        "epoch_jd": 2460400.0,
+        "inclination": 53.15,
+        "bstar": 5.0e-3,
+    }
+    new = {
+        "norad_id": 44714,
+        "mean_motion": 15.341,
+        "eccentricity": 0.000350,
+        "epoch_jd": 2460401.0,
+        "inclination": 53.15,
+        "bstar": 1.6e-2,
+    }
 
     anomaly = analyze_tle_pair(old, new)
     assert anomaly is not None
@@ -663,12 +774,22 @@ def test_orbital_analyzer_bstar_moderate_jump_ignored():
 
     # Normal Starlink cycling: 1e-3 to 1.5e-3 is only 50% and |Δ| = 5e-4.
     # Both well below the raised thresholds (200% ratio, 5e-3 abs).
-    old = {"norad_id": 44714, "mean_motion": 15.340, "eccentricity": 0.000348,
-           "epoch_jd": 2460400.0, "inclination": 53.15,
-           "bstar": 1e-3}
-    new = {"norad_id": 44714, "mean_motion": 15.341, "eccentricity": 0.000350,
-           "epoch_jd": 2460401.0, "inclination": 53.15,
-           "bstar": 1.5e-3}
+    old = {
+        "norad_id": 44714,
+        "mean_motion": 15.340,
+        "eccentricity": 0.000348,
+        "epoch_jd": 2460400.0,
+        "inclination": 53.15,
+        "bstar": 1e-3,
+    }
+    new = {
+        "norad_id": 44714,
+        "mean_motion": 15.341,
+        "eccentricity": 0.000350,
+        "epoch_jd": 2460401.0,
+        "inclination": 53.15,
+        "bstar": 1.5e-3,
+    }
 
     assert analyze_tle_pair(old, new) is None
 
@@ -678,12 +799,22 @@ def test_orbital_analyzer_altitude_takes_precedence_over_bstar():
     from services.brain.orbital_analyzer import analyze_tle_pair
 
     # Both a 20 km altitude change AND a B* sign flip — altitude wins.
-    old = {"norad_id": 44714, "mean_motion": 15.34, "eccentricity": 0.0003,
-           "epoch_jd": 2460400.0, "inclination": 53.15,
-           "bstar": 1e-3}
-    new = {"norad_id": 44714, "mean_motion": 15.50, "eccentricity": 0.0003,
-           "epoch_jd": 2460401.0, "inclination": 53.15,
-           "bstar": -2e-3}
+    old = {
+        "norad_id": 44714,
+        "mean_motion": 15.34,
+        "eccentricity": 0.0003,
+        "epoch_jd": 2460400.0,
+        "inclination": 53.15,
+        "bstar": 1e-3,
+    }
+    new = {
+        "norad_id": 44714,
+        "mean_motion": 15.50,
+        "eccentricity": 0.0003,
+        "epoch_jd": 2460401.0,
+        "inclination": 53.15,
+        "bstar": -2e-3,
+    }
 
     anomaly = analyze_tle_pair(old, new)
     assert anomaly is not None
@@ -696,12 +827,22 @@ def test_orbital_analyzer_no_false_positive():
     """Station-keeping noise must not trigger any rule, including B* rules."""
     from services.brain.orbital_analyzer import analyze_tle_pair
 
-    old = {"norad_id": 44714, "mean_motion": 15.340, "eccentricity": 0.000348,
-           "epoch_jd": 2460400.0, "inclination": 53.1552,
-           "bstar": 1.0e-3}
-    new = {"norad_id": 44714, "mean_motion": 15.341, "eccentricity": 0.000350,
-           "epoch_jd": 2460401.0, "inclination": 53.1553,
-           "bstar": 1.1e-3}  # 10% change, well below 50% threshold
+    old = {
+        "norad_id": 44714,
+        "mean_motion": 15.340,
+        "eccentricity": 0.000348,
+        "epoch_jd": 2460400.0,
+        "inclination": 53.1552,
+        "bstar": 1.0e-3,
+    }
+    new = {
+        "norad_id": 44714,
+        "mean_motion": 15.341,
+        "eccentricity": 0.000350,
+        "epoch_jd": 2460401.0,
+        "inclination": 53.1553,
+        "bstar": 1.1e-3,
+    }  # 10% change, well below 50% threshold
 
     assert analyze_tle_pair(old, new) is None
 
@@ -712,8 +853,10 @@ def test_anomaly_label_semantics():
     store.upsert_tles(SAMPLE_TLES)
 
     base = {
-        "norad_id": 44714, "anomaly_type": "altitude_change",
-        "altitude_before_km": 550, "altitude_after_km": 540,
+        "norad_id": 44714,
+        "anomaly_type": "altitude_change",
+        "altitude_before_km": 550,
+        "altitude_after_km": 540,
         "cause": "maneuver_candidate",
         "source_epoch_jd": 2460401.0,
     }
@@ -733,8 +876,9 @@ def test_anomaly_label_semantics():
     assert len(store.get_anomalies()) == 2
 
     # 4. A human reviewer overrides with a different cause → NEW row.
-    human_label = dict(base,
-        cause="natural_decay", confidence=1.0, classified_by="human:yong")
+    human_label = dict(
+        base, cause="natural_decay", confidence=1.0, classified_by="human:yong"
+    )
     assert store.insert_anomaly(human_label) is True
     assert len(store.get_anomalies()) == 3
 
@@ -762,10 +906,17 @@ def test_analyze_constellation_idempotent():
 
     # Two TLEs for the same sat: epoch 0 (550 km shell) and epoch 1 (raised by ~15 km).
     old = {
-        "norad_id": 44714, "epoch_jd": 2460400.0,
-        "line1": "x", "line2": "y", "name": "STARLINK-1008",
-        "mean_motion": 15.34, "inclination": 53.15, "eccentricity": 0.0003,
-        "shell_km": 550, "intl_designator": "19074B", "launch_group": "19074",
+        "norad_id": 44714,
+        "epoch_jd": 2460400.0,
+        "line1": "x",
+        "line2": "y",
+        "name": "STARLINK-1008",
+        "mean_motion": 15.34,
+        "inclination": 53.15,
+        "eccentricity": 0.0003,
+        "shell_km": 550,
+        "intl_designator": "19074B",
+        "launch_group": "19074",
     }
     new = dict(old, epoch_jd=2460401.0, mean_motion=15.10)  # raise orbit
 
@@ -785,7 +936,6 @@ def test_analyze_constellation_idempotent():
 
 
 def test_store_inventory_queries():
-    from services.telemetry.store import StarlinkStore
     import sqlite3
 
     store, db = _make_store()
@@ -856,27 +1006,45 @@ def test_detect_new_neighbors():
 
     # Target satellite — Starlink at 53°, mm 15.34
     target = {
-        "norad_id": 44714, "epoch_jd": 2460400.0,
-        "line1": "x", "line2": "y", "name": "STARLINK-TARGET",
-        "inclination": 53.15, "mean_motion": 15.34,
-        "eccentricity": 0.0003, "shell_km": 550,
-        "intl_designator": "19074B", "launch_group": "19074",
+        "norad_id": 44714,
+        "epoch_jd": 2460400.0,
+        "line1": "x",
+        "line2": "y",
+        "name": "STARLINK-TARGET",
+        "inclination": 53.15,
+        "mean_motion": 15.34,
+        "eccentricity": 0.0003,
+        "shell_km": 550,
+        "intl_designator": "19074B",
+        "launch_group": "19074",
     }
     # Neighbor with similar orbit — should be detected
     neighbor_similar = {
-        "norad_id": 99001, "epoch_jd": 2460401.0,
-        "line1": "x", "line2": "y", "name": "DEBRIS-001",
-        "inclination": 53.20, "mean_motion": 15.32,
-        "eccentricity": 0.002, "shell_km": 550,
-        "intl_designator": "19074Z", "launch_group": "19074",
+        "norad_id": 99001,
+        "epoch_jd": 2460401.0,
+        "line1": "x",
+        "line2": "y",
+        "name": "DEBRIS-001",
+        "inclination": 53.20,
+        "mean_motion": 15.32,
+        "eccentricity": 0.002,
+        "shell_km": 550,
+        "intl_designator": "19074Z",
+        "launch_group": "19074",
     }
     # Distant object — different inclination, should NOT match
     neighbor_far = {
-        "norad_id": 99002, "epoch_jd": 2460401.0,
-        "line1": "x", "line2": "y", "name": "UNRELATED",
-        "inclination": 97.6, "mean_motion": 15.34,
-        "eccentricity": 0.0001, "shell_km": 550,
-        "intl_designator": "25112A", "launch_group": "25112",
+        "norad_id": 99002,
+        "epoch_jd": 2460401.0,
+        "line1": "x",
+        "line2": "y",
+        "name": "UNRELATED",
+        "inclination": 97.6,
+        "mean_motion": 15.34,
+        "eccentricity": 0.0001,
+        "shell_km": 550,
+        "intl_designator": "25112A",
+        "launch_group": "25112",
     }
     store.upsert_tles([target, neighbor_similar, neighbor_far])
 
@@ -890,20 +1058,19 @@ def test_detect_new_neighbors():
     conn.close()
 
     # Search for neighbors that appeared in the last 7 days
-    neighbors = detect_new_neighbors(
-        store, norad_id=44714, since_ts=now - 7 * 86400
-    )
+    neighbors = detect_new_neighbors(store, norad_id=44714, since_ts=now - 7 * 86400)
 
     norad_ids = [n["norad_id"] for n in neighbors]
-    assert 99001 in norad_ids        # similar orbit → found
-    assert 99002 not in norad_ids    # different inclination → excluded
-    assert 44714 not in norad_ids    # target itself excluded
+    assert 99001 in norad_ids  # similar orbit → found
+    assert 99002 not in norad_ids  # different inclination → excluded
+    assert 44714 not in norad_ids  # target itself excluded
 
     os.unlink(db)
 
 
 def test_api_imports():
     from services.api.main import app
+
     assert app.title == "ArgusOrb API"
 
 
@@ -927,22 +1094,23 @@ def test_fetcher_labels_in_same_cycle(monkeypatch, tmp_path):
     # strings are never re-parsed). mean_motion 14.50 → alt ~750 km, clearly
     # different from the new TLE's ~550 km → rule_v1 fires.
     baseline = {
-        "norad_id": 44714, "epoch_jd": 2460400.0,
+        "norad_id": 44714,
+        "epoch_jd": 2460400.0,
         "name": "STARLINK-1008",
-        "line1": "x", "line2": "y",
-        "inclination": 53.1552, "mean_motion": 14.50,
+        "line1": "x",
+        "line2": "y",
+        "inclination": 53.1552,
+        "mean_motion": 14.50,
         "eccentricity": 0.000348,
-        "shell_km": 750, "intl_designator": "19074B", "launch_group": "19074",
+        "shell_km": 750,
+        "intl_designator": "19074B",
+        "launch_group": "19074",
     }
     store.upsert_tles([baseline])
 
     # Mocked Celestrak response uses the known-good sample TLE so it passes
     # the cleaning layer end-to-end.
-    mocked_text = (
-        "STARLINK-1008\n"
-        f"{VALID_TLE_1008_L1}\n"
-        f"{VALID_TLE_1008_L2}\n"
-    )
+    mocked_text = f"STARLINK-1008\n{VALID_TLE_1008_L1}\n{VALID_TLE_1008_L2}\n"
 
     async def fake_fetch():
         return mocked_text

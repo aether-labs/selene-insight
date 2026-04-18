@@ -14,18 +14,21 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import datetime, timezone
 
 try:
     from services.telemetry.horizons_worker import _get_ssl_context
 except ImportError:
+
     def _get_ssl_context():
         import ssl
+
         try:
             import certifi
+
             return ssl.create_default_context(cafile=certifi.where())
         except Exception:
             return ssl._create_unverified_context()
+
 
 DSN_URL = "https://eyes.nasa.gov/dsn/data/dsn.xml"
 POLL_INTERVAL = 10  # seconds
@@ -42,6 +45,7 @@ STATIONS = {
 @dataclass
 class DSNContact:
     """A single DSN dish-spacecraft contact."""
+
     station: str
     station_name: str
     dish: str
@@ -94,7 +98,8 @@ async def fetch_dsn_status() -> list[DSNContact]:
 
     try:
         response = await loop.run_in_executor(
-            None, lambda: urllib.request.urlopen(DSN_URL, timeout=15, context=ctx).read()
+            None,
+            lambda: urllib.request.urlopen(DSN_URL, timeout=15, context=ctx).read(),
         )
     except Exception as e:
         print(f"[DSN] Fetch failed: {e}", file=sys.stderr)
@@ -138,7 +143,11 @@ def _parse_dsn_xml(xml_bytes: bytes) -> list[DSNContact]:
             sc_name = (target.get("name", "")).upper()
             sc_id = target.get("id", "")
 
-            is_artemis = any(n in sc_name for n in ARTEMIS_NAMES) or sc_id in ("-1024", "-24", "24")
+            is_artemis = any(n in sc_name for n in ARTEMIS_NAMES) or sc_id in (
+                "-1024",
+                "-24",
+                "24",
+            )
             if not is_artemis:
                 continue
 
@@ -171,23 +180,25 @@ def _parse_dsn_xml(xml_bytes: bytes) -> list[DSNContact]:
                         freq = _safe_float(sig.get("frequency"))
                         band = sig.get("band", "")
 
-            contacts.append(DSNContact(
-                station=station_code,
-                station_name=station_name,
-                dish=dish_name,
-                azimuth=azimuth,
-                elevation=elevation,
-                spacecraft=sc_name,
-                spacecraft_id=sc_id,
-                signal_type=signal_type,
-                frequency_mhz=freq,
-                band=band,
-                data_rate_bps=data_rate,
-                power_dbm=power,
-                range_km=range_km,
-                rtlt_sec=rtlt,
-                timestamp=time.time(),
-            ))
+            contacts.append(
+                DSNContact(
+                    station=station_code,
+                    station_name=station_name,
+                    dish=dish_name,
+                    azimuth=azimuth,
+                    elevation=elevation,
+                    spacecraft=sc_name,
+                    spacecraft_id=sc_id,
+                    signal_type=signal_type,
+                    frequency_mhz=freq,
+                    band=band,
+                    data_rate_bps=data_rate,
+                    power_dbm=power,
+                    range_km=range_km,
+                    rtlt_sec=rtlt,
+                    timestamp=time.time(),
+                )
+            )
 
     return contacts
 
