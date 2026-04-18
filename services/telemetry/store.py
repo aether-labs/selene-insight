@@ -24,7 +24,7 @@ from pathlib import Path
 
 DB_PATH = os.environ.get("ARGUS_DB_PATH", "data/starlink.db")
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS tle (
@@ -157,6 +157,29 @@ CREATE INDEX IF NOT EXISTS idx_satnogs_status ON satnogs_observation(vetted_stat
 """
 
 
+# Schema v7 — Public predictions with tracked outcomes.
+# Every prediction is a falsifiable claim: "satellite X will do Y by date Z."
+# Tracked over time, correct/incorrect counts build auditable credibility.
+_SCHEMA_V7 = """
+CREATE TABLE IF NOT EXISTS prediction (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    norad_id INTEGER NOT NULL,
+    predicted_at REAL NOT NULL,
+    prediction_type TEXT NOT NULL,
+    description TEXT NOT NULL,
+    deadline_ts REAL NOT NULL,
+    confidence REAL,
+    classifier TEXT,
+    outcome TEXT DEFAULT 'pending',
+    resolved_at REAL,
+    resolution_notes TEXT,
+    UNIQUE(norad_id, prediction_type, deadline_ts)
+);
+CREATE INDEX IF NOT EXISTS idx_prediction_deadline ON prediction(deadline_ts);
+CREATE INDEX IF NOT EXISTS idx_prediction_outcome ON prediction(outcome);
+"""
+
+
 class StarlinkStore:
     """Thread-safe SQLite store for Starlink constellation data."""
 
@@ -215,6 +238,9 @@ class StarlinkStore:
 
         if version < 6:
             conn.executescript(_SCHEMA_V6)
+
+        if version < 7:
+            conn.executescript(_SCHEMA_V7)
 
         conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
         conn.commit()
@@ -667,6 +693,76 @@ class StarlinkStore:
         ).fetchall()
         conn.close()
         return [dict(r) for r in rows]
+
+    # ── Predictions ──
+
+    def insert_prediction(self, pred: dict) -> bool:
+        """Record a public prediction. Returns True if new."""
+        with self._lock:
+            conn = self._get_conn()
+            cursor = conn.execute(
+                """INSERT OR IGNORE INTO prediction
+                   (norad_id, predicted_at, prediction_type, description,
+                    deadline_ts, confidence, classifier)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    pred["norad_id"],
+                    pred.get("predicted_at", time.time()),
+                    pred["prediction_type"],
+                    pred["description"],
+                    pred["deadline_ts"],
+                    pred.get("confidence"),
+                    pred.get("classifier"),
+                ),
+            )
+            inserted = cursor.rowcount > 0
+            conn.commit()
+            conn.close()
+        return inserted
+
+    def resolve_prediction(self, pred_id: int, outcome: str, notes: str = "") -> None:
+        """Mark a prediction as correct/incorrect/expired."""
+        with self._lock:
+            conn = self._get_conn()
+            conn.execute(
+                """UPDATE prediction SET outcome = ?, resolved_at = ?,
+                   resolution_notes = ? WHERE id = ?""",
+                (outcome, time.time(), notes, pred_id),
+            )
+            conn.commit()
+            conn.close()
+
+    def get_pending_predictions(self) -> list[dict]:
+        """Predictions not yet resolved, ordered by deadline."""
+        conn = self._get_conn()
+        rows = conn.execute(
+            """SELECT p.*, s.name FROM prediction p
+               LEFT JOIN satellite s ON p.norad_id = s.norad_id
+               WHERE p.outcome = 'pending'
+               ORDER BY p.deadline_ts ASC"""
+        ).fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
+    def get_prediction_scorecard(self) -> dict:
+        """Aggregate prediction accuracy stats."""
+        conn = self._get_conn()
+        total = conn.execute("SELECT COUNT(*) FROM prediction").fetchone()[0]
+        by_outcome = conn.execute(
+            "SELECT outcome, COUNT(*) FROM prediction GROUP BY outcome"
+        ).fetchall()
+        conn.close()
+        outcomes = {r[0]: r[1] for r in by_outcome}
+        correct = outcomes.get("correct", 0)
+        resolved = correct + outcomes.get("incorrect", 0)
+        return {
+            "total": total,
+            "pending": outcomes.get("pending", 0),
+            "correct": correct,
+            "incorrect": outcomes.get("incorrect", 0),
+            "expired": outcomes.get("expired", 0),
+            "accuracy": round(correct / resolved, 4) if resolved > 0 else None,
+        }
 
     def get_satnogs_stats(self) -> dict:
         """SatNOGS observation counts by status."""
