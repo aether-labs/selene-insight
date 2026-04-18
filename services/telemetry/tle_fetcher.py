@@ -28,6 +28,7 @@ try:
         analyze_constellation,
         detect_tle_gaps,
     )
+    from services.brain.imm_classifier import classify_satellite_history
 except ImportError:
     from store import StarlinkStore  # type: ignore
     from tle_validator import (  # type: ignore
@@ -38,6 +39,7 @@ except ImportError:
         analyze_constellation,
         detect_tle_gaps,
     )
+    from brain.imm_classifier import classify_satellite_history  # type: ignore
 
 CELESTRAK_URL = "https://celestrak.org/NORAD/elements/supplemental/sup-gp.php?FILE=starlink&FORMAT=tle"
 FETCH_INTERVAL = 8 * 3600  # 8 hours
@@ -301,6 +303,32 @@ async def run_tle_fetcher(
             except Exception as e:
                 print(
                     f"[TLE][{cycle:04d}] gap detection failed: {type(e).__name__}: {e}",
+                    file=sys.stderr,
+                )
+
+            # IMM-UKF: run on gap-flagged satellites only (selective, ~2.5s/sat).
+            # Writes labels with classified_by="imm_ukf_v1" alongside rule_v1.
+            imm_labels = 0
+            try:
+                gap_norad_ids = [g["norad_id"] for g in (gaps or [])[:20]]
+                for nid in gap_norad_ids:
+                    try:
+                        labels = classify_satellite_history(store, nid)
+                        now_ts = time.time()
+                        for label in labels:
+                            label["detected_at"] = now_ts
+                            if store.insert_anomaly(label):
+                                imm_labels += 1
+                    except Exception:
+                        pass  # individual satellite failure shouldn't kill the loop
+                if imm_labels > 0:
+                    print(
+                        f"[TLE][{cycle:04d}] IMM-UKF: {imm_labels} new labels "
+                        f"from {len(gap_norad_ids)} gapped sats"
+                    )
+            except Exception as e:
+                print(
+                    f"[TLE][{cycle:04d}] IMM-UKF pass failed: {type(e).__name__}: {e}",
                     file=sys.stderr,
                 )
 
