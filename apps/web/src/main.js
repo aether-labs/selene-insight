@@ -146,15 +146,20 @@ function showUncertaintyEllipsoid(lon, lat, alt_km, uncertainty) {
   clearUncertaintyEllipsoid();
   if (!uncertainty) return;
 
-  const maxR = uncertainty.max_km * 1000; // convert km → meters
-  // Color by uncertainty level
+  // Scale up for visibility: real uncertainty (~1 km) is invisible on a
+  // globe. We display at 50× scale with a minimum of 50 km radius so the
+  // sphere is visible at moderate zoom. The sidebar shows the TRUE value.
+  const VIZ_SCALE = 50;
+  const MIN_RADIUS_M = 50_000; // 50 km minimum
+  const maxR = Math.max(uncertainty.max_km * 1000 * VIZ_SCALE, MIN_RADIUS_M);
+
   let color;
   if (uncertainty.max_km < 3) {
-    color = Color.GREEN.withAlpha(0.15);
+    color = Color.GREEN.withAlpha(0.2);
   } else if (uncertainty.max_km < 10) {
-    color = Color.ORANGE.withAlpha(0.15);
+    color = Color.ORANGE.withAlpha(0.2);
   } else {
-    color = Color.RED.withAlpha(0.15);
+    color = Color.RED.withAlpha(0.25);
   }
 
   uncertaintyEntity = viewer.entities.add({
@@ -163,8 +168,8 @@ function showUncertaintyEllipsoid(lon, lat, alt_km, uncertainty) {
       radii: new Cartesian3(maxR, maxR, maxR),
       material: new ColorMaterialProperty(color),
       outline: true,
-      outlineColor: color.withAlpha(0.5),
-      outlineWidth: 1,
+      outlineColor: color.withAlpha(0.6),
+      outlineWidth: 1.5,
     },
   });
 }
