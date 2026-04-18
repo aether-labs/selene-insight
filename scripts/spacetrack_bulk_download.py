@@ -39,14 +39,28 @@ def authenticate(client: httpx.Client, user: str, pw: str) -> bool:
     return resp.status_code == 200
 
 
-def get_leo_catalog(client: httpx.Client) -> list[int]:
-    """Get NORAD IDs of all current LEO objects (period < 128 min)."""
-    url = (
-        f"{BASE}/basicspacedata/query/class/gp"
-        f"/PERIOD/<128/EPOCH/>now-30"
-        f"/orderby/NORAD_CAT_ID asc"
-        f"/format/json"
-    )
+def get_leo_catalog(client: httpx.Client, group: str = "") -> list[int]:
+    """Get NORAD IDs of LEO objects (period < 128 min).
+
+    Args:
+        group: filter by object name. "starlink" = Starlink only.
+               Empty = all LEO.
+    """
+    if group:
+        url = (
+            f"{BASE}/basicspacedata/query/class/gp"
+            f"/OBJECT_NAME/~~{group}"
+            f"/PERIOD/<128/EPOCH/>now-30"
+            f"/orderby/NORAD_CAT_ID asc"
+            f"/format/json"
+        )
+    else:
+        url = (
+            f"{BASE}/basicspacedata/query/class/gp"
+            f"/PERIOD/<128/EPOCH/>now-30"
+            f"/orderby/NORAD_CAT_ID asc"
+            f"/format/json"
+        )
     resp = client.get(url)
     if resp.status_code != 200:
         print(f"Catalog fetch failed: {resp.status_code}", file=sys.stderr)
@@ -101,6 +115,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="Max objects to download (0 = all)")
     parser.add_argument("--min-norad", type=int, default=0,
                         help="Start from this NORAD ID")
+    parser.add_argument("--group", type=str, default="",
+                        help="Filter by name (e.g. 'starlink'). Empty = all LEO.")
     args = parser.parse_args(argv)
 
     user = os.environ.get("SPACETRACK_USER")
@@ -117,8 +133,9 @@ def main(argv: list[str] | None = None) -> int:
             print("Auth failed", file=sys.stderr)
             return 1
 
-        print("Fetching LEO catalog...")
-        catalog = get_leo_catalog(client)
+        group_label = f" (group={args.group})" if args.group else ""
+        print(f"Fetching LEO catalog{group_label}...")
+        catalog = get_leo_catalog(client, group=args.group)
         print(f"LEO objects: {len(catalog)}")
 
         if args.min_norad > 0:
