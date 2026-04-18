@@ -38,12 +38,12 @@ SUPGP_SOURCES = [
         "https://celestrak.org/NORAD/elements/supplemental/sup-gp.php?FILE=oneweb&FORMAT=tle",
     ),
     (
-        "spire",
-        "https://celestrak.org/NORAD/elements/supplemental/sup-gp.php?FILE=spire&FORMAT=tle",
+        "kuiper",
+        "https://celestrak.org/NORAD/elements/supplemental/sup-gp.php?FILE=kuiper&FORMAT=tle",
     ),
     (
         "iridium",
-        "https://celestrak.org/NORAD/elements/supplemental/sup-gp.php?FILE=iridium-NEXT&FORMAT=tle",
+        "https://celestrak.org/NORAD/elements/supplemental/sup-gp.php?FILE=iridium&FORMAT=tle",
     ),
     # NORAD standard catalog (radar-tracked, NOT supplemental).
     # For Starlink, comparing this against our primary feed (which IS
