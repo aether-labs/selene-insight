@@ -16,6 +16,9 @@ import {
   ScreenSpaceEventType,
   ScreenSpaceEventHandler,
   defined,
+  EllipsoidGraphics,
+  ColorMaterialProperty,
+  ConstantPositionProperty,
 } from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 import { createStarfieldSkyboxSources } from "./lib/starfield.js";
@@ -129,6 +132,43 @@ handler.setInputAction((click) => {
   }
 }, ScreenSpaceEventType.LEFT_CLICK);
 
+// Uncertainty ellipsoid entity (reused across selections)
+let uncertaintyEntity = null;
+
+function clearUncertaintyEllipsoid() {
+  if (uncertaintyEntity) {
+    viewer.entities.remove(uncertaintyEntity);
+    uncertaintyEntity = null;
+  }
+}
+
+function showUncertaintyEllipsoid(lon, lat, alt_km, uncertainty) {
+  clearUncertaintyEllipsoid();
+  if (!uncertainty) return;
+
+  const maxR = uncertainty.max_km * 1000; // convert km → meters
+  // Color by uncertainty level
+  let color;
+  if (uncertainty.max_km < 3) {
+    color = Color.GREEN.withAlpha(0.15);
+  } else if (uncertainty.max_km < 10) {
+    color = Color.ORANGE.withAlpha(0.15);
+  } else {
+    color = Color.RED.withAlpha(0.15);
+  }
+
+  uncertaintyEntity = viewer.entities.add({
+    position: Cartesian3.fromDegrees(lon, lat, alt_km * 1000),
+    ellipsoid: {
+      radii: new Cartesian3(maxR, maxR, maxR),
+      material: new ColorMaterialProperty(color),
+      outline: true,
+      outlineColor: color.withAlpha(0.5),
+      outlineWidth: 1,
+    },
+  });
+}
+
 async function selectSatellite(noradId) {
   const entry = satelliteMap.get(noradId);
   if (!entry) return;
@@ -149,16 +189,28 @@ async function selectSatellite(noradId) {
     <div class="sat-row"><span class="sat-label">STATUS</span><span class="sat-value">${sat.status}</span></div>
   `;
 
-  // Fetch detailed info from API
+  // Fetch detailed info + uncertainty from API
   try {
     const r = await fetch(`/api/starlink/satellite/${noradId}`);
     const d = await r.json();
-    if (d.satellite && d.tle_count) {
+    if (d.tle_count) {
       dom.satDetail.innerHTML += `
         <div class="sat-row"><span class="sat-label">TLE RECORDS</span><span class="sat-value">${d.tle_count}</span></div>
       `;
     }
-  } catch { /* ignore */ }
+    if (d.uncertainty) {
+      const u = d.uncertainty;
+      dom.satDetail.innerHTML += `
+        <div class="sat-row"><span class="sat-label">UNCERTAINTY</span><span class="sat-value">±${u.max_km} km</span></div>
+        <div class="sat-row"><span class="sat-label">TLE AGE</span><span class="sat-value">${u.tle_age_hours}h</span></div>
+      `;
+      showUncertaintyEllipsoid(sat.lon, sat.lat, sat.alt_km, u);
+    } else {
+      clearUncertaintyEllipsoid();
+    }
+  } catch {
+    clearUncertaintyEllipsoid();
+  }
 }
 
 // ── Anomalies ──

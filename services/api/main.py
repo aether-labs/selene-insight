@@ -90,11 +90,37 @@ async def satellite_detail(norad_id: int = Path(...)):
         if satrec:
             pos = propagate_single(satrec, time.time())
 
+    # Position uncertainty estimate (analytical, based on TLE age + altitude + B*)
+    uncertainty = None
+    if history and pos:
+        latest = history[0]
+        tle_age_hours = max(0, (time.time() - (latest.get("fetched_at") or time.time())) / 3600)
+        alt_km = pos.get("alt_km", 500)
+        bstar = abs(latest.get("bstar") or 0)
+
+        # SGP4 error growth model (empirical)
+        # Along-track: dominant, grows ~1 km/day + altitude penalty below 300 km
+        sigma_along = 1.0 + 0.12 * tle_age_hours + max(0, (300 - alt_km)) * 0.02
+        # Cross-track: smallest, well-constrained inclination
+        sigma_cross = 0.3 + 0.03 * tle_age_hours
+        # Radial: moderate, drag-dependent
+        sigma_radial = 0.5 + 0.06 * tle_age_hours + bstar / 1e-3 * 0.3
+
+        uncertainty = {
+            "along_track_km": round(sigma_along, 2),
+            "cross_track_km": round(sigma_cross, 2),
+            "radial_km": round(sigma_radial, 2),
+            "max_km": round(max(sigma_along, sigma_cross, sigma_radial), 2),
+            "tle_age_hours": round(tle_age_hours, 1),
+        }
+
     return {
         "satellite": dict(sat),
         "position": pos,
+        "uncertainty": uncertainty,
         "tle_history": [{"epoch_jd": h["epoch_jd"], "mean_motion": h["mean_motion"],
-                         "inclination": h["inclination"], "eccentricity": h["eccentricity"]}
+                         "inclination": h["inclination"], "eccentricity": h["eccentricity"],
+                         "bstar": h.get("bstar")}
                         for h in history],
         "tle_count": len(history),
     }
