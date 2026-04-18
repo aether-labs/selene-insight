@@ -226,6 +226,14 @@ def classify_satellite_history(
     # Estimate initial altitude for adaptive parameters
     from services.brain.dynamics import R_EARTH
     alt0_km = np.linalg.norm(state0[:3]) / 1000 - R_EARTH / 1000
+
+    # Below 300 km, the atmosphere model is too crude for reliable
+    # physics-based classification. rule_v1's altitude threshold
+    # (reentry < 250 km) handles these cases better. Skip IMM-UKF.
+    MIN_ALT_FOR_IMM = 300.0
+    if alt0_km < MIN_ALT_FOR_IMM:
+        return []
+
     imm = create_imm(state0, alt_km=alt0_km)
     labels: list[dict] = []
 

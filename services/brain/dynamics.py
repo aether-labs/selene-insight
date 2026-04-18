@@ -231,7 +231,11 @@ def _vectorized_eom(states: np.ndarray, bstar: float) -> np.ndarray:
     pos = states[:, :3]                    # (N, 3)
     vel = states[:, 3:]                    # (N, 3)
     r = np.linalg.norm(pos, axis=1, keepdims=True)  # (N, 1)
-    r = np.maximum(r, R_EARTH)             # clamp to avoid /0
+    # Clamp to 150 km above surface — sigma points below this are
+    # in a regime where the atmosphere model is unreliable and the
+    # integrator produces garbage. Better to clamp and let the UKF
+    # correct via the observation update.
+    r = np.maximum(r, R_EARTH + 150_000)   # 150 km minimum altitude
 
     x = pos[:, 0:1]  # (N, 1)
     y = pos[:, 1:2]
@@ -323,7 +327,17 @@ def propagate_batch_rk4(
     if abs(dt_seconds) < 0.001:
         return states.copy(), True
 
-    n_steps = max(1, int(abs(dt_seconds) / step_size))
+    # Adaptive step: use smaller steps at low altitude where drag
+    # gradients are steep (prevents sigma point divergence in the UKF).
+    min_alt_km = np.min(np.linalg.norm(states[:, :3], axis=1)) / 1000 - R_EARTH / 1000
+    if min_alt_km < 300:
+        effective_step = min(step_size, 15.0)  # 15s steps below 300 km
+    elif min_alt_km < 400:
+        effective_step = min(step_size, 30.0)
+    else:
+        effective_step = step_size
+
+    n_steps = max(1, int(abs(dt_seconds) / effective_step))
     h = dt_seconds / n_steps
     y = states.copy()
 

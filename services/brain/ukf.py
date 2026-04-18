@@ -63,6 +63,20 @@ def _sigma_points(x: np.ndarray, P: np.ndarray, alpha: float = 1e-3,
     return sigmas, wm, wc
 
 
+def _repair_covariance(P: np.ndarray, min_eigenvalue: float = 1e-6) -> np.ndarray:
+    """Ensure covariance is symmetric positive definite.
+
+    At very low altitude, sigma point propagation can produce wildly
+    different trajectories (exponential atmosphere gradient), causing P
+    to lose positive definiteness. This clips negative eigenvalues and
+    reconstructs P from the repaired eigendecomposition.
+    """
+    P = 0.5 * (P + P.T)  # symmetrize
+    eigvals, eigvecs = np.linalg.eigh(P)
+    eigvals = np.maximum(eigvals, min_eigenvalue)
+    return eigvecs @ np.diag(eigvals) @ eigvecs.T
+
+
 class UKF:
     """Unscented Kalman Filter.
 
@@ -203,8 +217,8 @@ class UKF:
         self.x = self.x + K @ self.innovation
         self.P = self.P - K @ S @ K.T
 
-        # Ensure P stays symmetric
-        self.P = 0.5 * (self.P + self.P.T)
+        # Ensure P stays symmetric and positive definite
+        self.P = _repair_covariance(self.P)
 
         # Log-likelihood (for IMM model probability update)
         try:
