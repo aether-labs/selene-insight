@@ -25,6 +25,8 @@ from scipy.integrate import solve_ivp
 MU_EARTH = 3.986004418e14       # m³/s² — gravitational parameter
 R_EARTH = 6.3781363e6           # m — equatorial radius
 J2 = 1.08262668e-3              # J2 oblateness coefficient
+J3 = -2.53265648e-6             # J3 pear-shape term
+J4 = -1.61962159e-6             # J4 term
 OMEGA_EARTH = 7.2921159e-5      # rad/s — Earth rotation rate
 
 # Exponential atmosphere model (simplified CIRA/MSIS approximation)
@@ -103,15 +105,37 @@ def equations_of_motion(t: float, state: np.ndarray, bstar: float = 0.0) -> np.n
     # ── Point mass gravity ──
     a_grav = -MU_EARTH / r**3 * r_vec
 
-    # ── J2 oblateness perturbation ──
+    # ── Zonal gravity harmonics (J2 + J3 + J4) ──
     r2 = r * r
     z2 = z * z
-    factor = 1.5 * J2 * MU_EARTH * R_EARTH**2 / r**5
+    z_r2 = z2 / r2  # (z/r)²
+
+    # J2: dominant oblateness — ~1 km/orbit effect
+    f2 = 1.5 * J2 * MU_EARTH * R_EARTH**2 / r**5
     a_j2 = np.array([
-        factor * x * (5 * z2 / r2 - 1),
-        factor * y * (5 * z2 / r2 - 1),
-        factor * z * (5 * z2 / r2 - 3),
+        f2 * x * (5 * z_r2 - 1),
+        f2 * y * (5 * z_r2 - 1),
+        f2 * z * (5 * z_r2 - 3),
     ])
+
+    # J3: pear-shape asymmetry — ~1 m/orbit effect
+    f3 = 0.5 * J3 * MU_EARTH * R_EARTH**3 / r**7
+    a_j3 = np.array([
+        f3 * 5 * x * (7 * z * z_r2 - 3 * z),
+        f3 * 5 * y * (7 * z * z_r2 - 3 * z),
+        f3 * (6 * z2 - 7 * z2 * z_r2 - 0.6 * r2),
+    ])
+
+    # J4: ~0.1 m/orbit effect
+    z_r4 = z_r2 * z_r2
+    f4 = -0.625 * J4 * MU_EARTH * R_EARTH**4 / r**7
+    a_j4 = np.array([
+        f4 * x / r2 * (3 - 42 * z_r2 + 63 * z_r4),
+        f4 * y / r2 * (3 - 42 * z_r2 + 63 * z_r4),
+        f4 * z / r2 * (15 - 70 * z_r2 + 63 * z_r4),
+    ])
+
+    a_gravity = a_grav + a_j2 + a_j3 + a_j4
 
     # ── Atmospheric drag ──
     alt_km = (r - R_EARTH) / 1000.0
@@ -131,7 +155,7 @@ def equations_of_motion(t: float, state: np.ndarray, bstar: float = 0.0) -> np.n
             a_drag = -0.5 * cd_a_over_m * rho * v_rel_mag * v_rel
 
     # Total acceleration
-    a_total = a_grav + a_j2 + a_drag
+    a_total = a_gravity + a_drag
 
     return np.array([vx, vy, vz, a_total[0], a_total[1], a_total[2]])
 
