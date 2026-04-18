@@ -59,12 +59,11 @@ try {
 } catch (e) { /* fallback to default */ }
 
 // ── Globe visual enhancements ──
-// Wrapped in try/catch because CesiumJS API changes across versions.
 const globe = viewer.scene.globe;
-try {
-  globe.enableLighting = true;
-  globe.baseColor = Color.fromCssColorString("#0a1628");
-} catch (e) { console.warn("Globe lighting setup:", e.message); }
+// NOTE: enableLighting is disabled — CesiumJS 1.140 internally calls
+// setDynamicLighting during render which crashes. Dark baseColor gives
+// a space aesthetic without needing the lighting engine.
+globe.baseColor = Color.fromCssColorString("#0a1628");
 
 // High-DPI rendering
 viewer.resolutionScale = window.devicePixelRatio || 1;
