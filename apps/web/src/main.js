@@ -19,6 +19,8 @@ import {
   NearFarScalar,
   ColorMaterialProperty,
   ConstantPositionProperty,
+  UrlTemplateImageryProvider,
+  ImageryLayer,
 } from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 import { createStarfieldSkyboxSources } from "./lib/starfield.js";
@@ -65,6 +67,17 @@ const globe = viewer.scene.globe;
 if (globe && typeof globe.setDynamicLighting !== "function") {
   globe.setDynamicLighting = function () {};
 }
+
+// ── Globe imagery ──
+// Remove the default Ion imagery (requires valid token) and add
+// a free satellite imagery layer from ArcGIS/ESRI.
+viewer.imageryLayers.removeAll();
+viewer.imageryLayers.addImageryProvider(
+  new UrlTemplateImageryProvider({
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    credit: "Esri, Maxar, Earthstar Geographics",
+  })
+);
 
 // ── Globe visual enhancements ──
 globe.enableLighting = true;
