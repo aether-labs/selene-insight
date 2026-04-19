@@ -149,8 +149,8 @@ class OrbitalTransformer(nn.Module):
             h = self.encoder(h)
 
         # Heads
-        predictions = self.pred_head(h)      # (B, T, n_features)
-        classifications = self.cls_head(h)   # (B, T, n_classes)
+        predictions = self.pred_head(h)  # (B, T, n_features)
+        classifications = self.cls_head(h)  # (B, T, n_classes)
 
         return predictions, classifications
 
@@ -161,9 +161,9 @@ class OrbitalTransformer(nn.Module):
     def summary(self) -> str:
         n = self.num_parameters
         if n < 1e6:
-            size = f"{n/1e3:.0f}K"
+            size = f"{n / 1e3:.0f}K"
         else:
-            size = f"{n/1e6:.1f}M"
+            size = f"{n / 1e6:.1f}M"
         return (
             f"OrbitalTransformer: {size} params, "
             f"d_model={self.d_model}, layers={len(self.encoder.layers)}, "

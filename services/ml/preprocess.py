@@ -17,14 +17,20 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
-import os
 import sys
 from pathlib import Path
 
 import numpy as np
 
 # Feature columns: [epoch_h, mean_motion, eccentricity, inclination, bstar, alt_km]
-FEATURE_NAMES = ["epoch_h", "mean_motion", "eccentricity", "inclination", "bstar", "alt_km"]
+FEATURE_NAMES = [
+    "epoch_h",
+    "mean_motion",
+    "eccentricity",
+    "inclination",
+    "bstar",
+    "alt_km",
+]
 N_FEATURES = len(FEATURE_NAMES)
 
 # Normalization constants (empirical from Starlink data)
@@ -49,8 +55,9 @@ def load_synthetic(input_dir: Path) -> tuple[np.ndarray, np.ndarray]:
     return X, y
 
 
-def load_spacetrack(input_dir: Path, seq_len: int = 100,
-                    stride: int = 50) -> tuple[np.ndarray, np.ndarray]:
+def load_spacetrack(
+    input_dir: Path, seq_len: int = 100, stride: int = 50
+) -> tuple[np.ndarray, np.ndarray]:
     """Load Space-Track JSON files and convert to sequences.
 
     Each JSON file is one satellite's full TLE history. We slide a
@@ -110,14 +117,14 @@ def load_spacetrack(input_dir: Path, seq_len: int = 100,
 
         # Sliding window
         for start in range(0, len(arr) - seq_len + 1, stride):
-            window = arr[start:start + seq_len].copy()
+            window = arr[start : start + seq_len].copy()
             # Make epoch relative to window start
             window[:, 0] -= window[0, 0]
             all_X.append(window)
             all_y.append(np.zeros(seq_len, dtype=np.int32))
 
         if (i + 1) % 200 == 0:
-            print(f"  [{i+1}/{len(json_files)}] sequences so far: {len(all_X)}")
+            print(f"  [{i + 1}/{len(json_files)}] sequences so far: {len(all_X)}")
 
     if skipped:
         print(f"  skipped {skipped} files (too short or corrupt)")
@@ -128,9 +135,13 @@ def load_spacetrack(input_dir: Path, seq_len: int = 100,
     return np.array(all_X), np.array(all_y)
 
 
-def split_dataset(X: np.ndarray, y: np.ndarray,
-                  train_frac: float = 0.8, val_frac: float = 0.1,
-                  seed: int = 42) -> dict:
+def split_dataset(
+    X: np.ndarray,
+    y: np.ndarray,
+    train_frac: float = 0.8,
+    val_frac: float = 0.1,
+    seed: int = 42,
+) -> dict:
     """Split into train/val/test."""
     rng = np.random.default_rng(seed)
     n = len(X)
@@ -140,13 +151,16 @@ def split_dataset(X: np.ndarray, y: np.ndarray,
     n_val = int(n * val_frac)
 
     train_idx = indices[:n_train]
-    val_idx = indices[n_train:n_train + n_val]
-    test_idx = indices[n_train + n_val:]
+    val_idx = indices[n_train : n_train + n_val]
+    test_idx = indices[n_train + n_val :]
 
     return {
-        "X_train": X[train_idx], "y_train": y[train_idx],
-        "X_val": X[val_idx], "y_val": y[val_idx],
-        "X_test": X[test_idx], "y_test": y[test_idx],
+        "X_train": X[train_idx],
+        "y_train": y[train_idx],
+        "X_val": X[val_idx],
+        "y_val": y[val_idx],
+        "X_test": X[test_idx],
+        "y_test": y[test_idx],
     }
 
 

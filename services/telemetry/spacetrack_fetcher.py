@@ -44,9 +44,7 @@ async def _fetch_once(user: str, password: str) -> str:
     async with httpx.AsyncClient(
         timeout=120, verify=True, headers={"User-Agent": USER_AGENT}
     ) as client:
-        r = await client.post(
-            LOGIN_URL, data={"identity": user, "password": password}
-        )
+        r = await client.post(LOGIN_URL, data={"identity": user, "password": password})
         r.raise_for_status()
         r = await client.get(STARLINK_QUERY)
         r.raise_for_status()

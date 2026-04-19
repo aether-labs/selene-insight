@@ -77,7 +77,9 @@ class FocalLoss(nn.Module):
         self.weight = weight
 
     def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        ce = nn.functional.cross_entropy(logits, targets, weight=self.weight, reduction="none")
+        ce = nn.functional.cross_entropy(
+            logits, targets, weight=self.weight, reduction="none"
+        )
         p = torch.softmax(logits, dim=-1)
         p_t = p.gather(1, targets.unsqueeze(1)).squeeze(1)
         focal_weight = (1 - p_t) ** self.gamma
@@ -173,7 +175,8 @@ def validate(
         if mode in ("supervised", "mixed"):
             B, T, C = classifications.shape
             c_loss = cls_criterion(
-                classifications.reshape(B * T, C), y.reshape(B * T),
+                classifications.reshape(B * T, C),
+                y.reshape(B * T),
             )
             total_cls_loss += c_loss.item()
 
@@ -195,18 +198,23 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Train the Orbital Transformer.",
     )
-    parser.add_argument("--data", type=Path, required=True,
-                        help="Directory with X_train.npy, y_train.npy, etc.")
-    parser.add_argument("--mode", choices=["selfsup", "supervised", "mixed"],
-                        default="mixed")
-    parser.add_argument("--size", choices=["tiny", "small", "medium", "large"],
-                        default="small")
+    parser.add_argument(
+        "--data",
+        type=Path,
+        required=True,
+        help="Directory with X_train.npy, y_train.npy, etc.",
+    )
+    parser.add_argument(
+        "--mode", choices=["selfsup", "supervised", "mixed"], default="mixed"
+    )
+    parser.add_argument(
+        "--size", choices=["tiny", "small", "medium", "large"], default="small"
+    )
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--batch-size", type=int, default=256)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--checkpoint-dir", type=Path, default=Path("checkpoints"))
-    parser.add_argument("--device", default="auto",
-                        help="cpu, cuda, mps, or auto")
+    parser.add_argument("--device", default="auto", help="cpu, cuda, mps, or auto")
     args = parser.parse_args(argv)
 
     # Device
@@ -236,16 +244,16 @@ def main(argv: list[str] | None = None) -> int:
     best_val_loss = float("inf")
 
     print(f"\nTraining: {args.epochs} epochs, mode={args.mode}, lr={args.lr}")
-    print(f"{'epoch':>5s}  {'train_pred':>10s}  {'train_cls':>10s}  "
-          f"{'val_pred':>10s}  {'val_cls':>10s}  {'val_acc':>8s}  {'time':>6s}  {'lr':>10s}")
+    print(
+        f"{'epoch':>5s}  {'train_pred':>10s}  {'train_cls':>10s}  "
+        f"{'val_pred':>10s}  {'val_cls':>10s}  {'val_acc':>8s}  {'time':>6s}  {'lr':>10s}"
+    )
     print("-" * 80)
 
     for epoch in range(1, args.epochs + 1):
         t0 = time.time()
 
-        train_metrics = train_epoch(
-            model, train_dl, optimizer, device, mode=args.mode
-        )
+        train_metrics = train_epoch(model, train_dl, optimizer, device, mode=args.mode)
         val_metrics = validate(model, val_dl, device, mode=args.mode)
 
         scheduler.step()
@@ -266,18 +274,21 @@ def main(argv: list[str] | None = None) -> int:
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             ckpt_path = args.checkpoint_dir / "best_model.pt"
-            torch.save({
-                "epoch": epoch,
-                "model_state_dict": model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "val_metrics": val_metrics,
-                "model_config": {
-                    "size": args.size,
-                    "n_features": model.n_features,
-                    "d_model": model.d_model,
-                    "n_classes": model.n_classes,
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "val_metrics": val_metrics,
+                    "model_config": {
+                        "size": args.size,
+                        "n_features": model.n_features,
+                        "d_model": model.d_model,
+                        "n_classes": model.n_classes,
+                    },
                 },
-            }, ckpt_path)
+                ckpt_path,
+            )
 
     print(f"\nBest val loss: {best_val_loss:.6f}")
     print(f"Checkpoint: {args.checkpoint_dir}/best_model.pt")

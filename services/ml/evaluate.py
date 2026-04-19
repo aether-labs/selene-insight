@@ -78,7 +78,9 @@ def evaluate_classification(
         per_class[cls_name] = {
             "accuracy": float(cls_acc),
             "count": int(cls_count),
-            "predicted_as": dict(Counter(LABEL_NAMES.get(p, f"unk_{p}") for p in p_flat[mask])),
+            "predicted_as": dict(
+                Counter(LABEL_NAMES.get(p, f"unk_{p}") for p in p_flat[mask])
+            ),
         }
 
     return {"overall_accuracy": float(overall_acc), "per_class": per_class}
@@ -147,11 +149,16 @@ def evaluate_prediction(
     actual = X[:, 1:, :]
 
     mse_per_feature = np.mean((pred - actual) ** 2, axis=(0, 1))
-    feature_names = ["epoch_h", "mean_motion", "eccentricity", "inclination", "bstar", "alt_km"]
+    feature_names = [
+        "epoch_h",
+        "mean_motion",
+        "eccentricity",
+        "inclination",
+        "bstar",
+        "alt_km",
+    ]
 
-    return {
-        name: float(mse) for name, mse in zip(feature_names, mse_per_feature)
-    }
+    return {name: float(mse) for name, mse in zip(feature_names, mse_per_feature)}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -159,8 +166,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--model", type=Path, required=True)
     parser.add_argument("--data", type=Path, required=True)
     parser.add_argument("--device", default="auto")
-    parser.add_argument("--max-samples", type=int, default=1000,
-                        help="Max test samples to evaluate (for speed)")
+    parser.add_argument(
+        "--max-samples",
+        type=int,
+        default=1000,
+        help="Max test samples to evaluate (for speed)",
+    )
     args = parser.parse_args(argv)
 
     if args.device == "auto":
@@ -175,8 +186,8 @@ def main(argv: list[str] | None = None) -> int:
 
     model = load_model(args.model, device)
 
-    X_test = np.load(args.data / "X_test.npy")[:args.max_samples]
-    y_test = np.load(args.data / "y_test.npy")[:args.max_samples]
+    X_test = np.load(args.data / "X_test.npy")[: args.max_samples]
+    y_test = np.load(args.data / "y_test.npy")[: args.max_samples]
     print(f"Test set: {X_test.shape}")
 
     # Classification
@@ -190,8 +201,10 @@ def main(argv: list[str] | None = None) -> int:
     print("\n=== Detection Latency ===")
     latency = evaluate_detection_latency(model, X_test, y_test, device)
     for etype, m in latency.items():
-        print(f"  {etype:>12s}: mean={m['mean_latency_steps']:.1f} steps, "
-              f"detect_rate={m['detection_rate']:.2%}, n={m['n_events']}")
+        print(
+            f"  {etype:>12s}: mean={m['mean_latency_steps']:.1f} steps, "
+            f"detect_rate={m['detection_rate']:.2%}, n={m['n_events']}"
+        )
 
     # Prediction
     print("\n=== Prediction MSE (per feature) ===")

@@ -30,12 +30,14 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from services.brain.dynamics import (
-    propagate_state, tle_to_state, equations_of_motion,
-    MU_EARTH, R_EARTH,
+    propagate_state,
+    MU_EARTH,
+    R_EARTH,
 )
 
 
 # ── Orbit generation ──
+
 
 def _random_leo_state(rng: np.random.Generator) -> np.ndarray:
     """Generate a random LEO circular orbit state vector."""
@@ -54,11 +56,13 @@ def _random_leo_state(rng: np.random.Generator) -> np.ndarray:
     # Rotation to ECI (simplified: RAAN + inclination)
     ci, si = np.cos(incl), np.sin(incl)
     co, so = np.cos(raan), np.sin(raan)
-    R_mat = np.array([
-        [co, -so * ci, so * si],
-        [so, co * ci, -co * si],
-        [0, si, ci],
-    ])
+    R_mat = np.array(
+        [
+            [co, -so * ci, so * si],
+            [so, co * ci, -co * si],
+            [0, si, ci],
+        ]
+    )
 
     pos = R_mat @ r_orb
     vel = R_mat @ v_orb
@@ -109,8 +113,10 @@ def _state_to_elements(state: np.ndarray) -> dict:
 
 # ── Event injection ──
 
-def _inject_maneuver(state: np.ndarray, rng: np.random.Generator,
-                     magnitude: float = 0.0) -> np.ndarray:
+
+def _inject_maneuver(
+    state: np.ndarray, rng: np.random.Generator, magnitude: float = 0.0
+) -> np.ndarray:
     """Apply a delta-v to the velocity vector."""
     if magnitude <= 0:
         magnitude = rng.uniform(0.1, 5.0)  # m/s
@@ -280,7 +286,7 @@ def generate_dataset(
             elapsed = time.time() - t0
             rate = (i + 1) / elapsed
             eta = (count - i - 1) / rate
-            print(f"  [{i+1}/{count}] {rate:.0f} traj/s, ETA {eta:.0f}s")
+            print(f"  [{i + 1}/{count}] {rate:.0f} traj/s, ETA {eta:.0f}s")
 
     return {
         "X": X,
@@ -292,17 +298,24 @@ def generate_dataset(
 
 # ── CLI ──
 
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Generate synthetic orbital trajectories for ML training.",
     )
-    parser.add_argument("--count", type=int, default=10000,
-                        help="Number of trajectories (default: 10000)")
-    parser.add_argument("--steps", type=int, default=100,
-                        help="Timesteps per trajectory (default: 100)")
+    parser.add_argument(
+        "--count",
+        type=int,
+        default=10000,
+        help="Number of trajectories (default: 10000)",
+    )
+    parser.add_argument(
+        "--steps", type=int, default=100, help="Timesteps per trajectory (default: 100)"
+    )
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--output", type=Path, default=Path("data/synthetic"),
-                        help="Output directory")
+    parser.add_argument(
+        "--output", type=Path, default=Path("data/synthetic"), help="Output directory"
+    )
     args = parser.parse_args(argv)
 
     print(f"Generating {args.count} trajectories × {args.steps} steps...")
@@ -314,6 +327,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # Stats
     from collections import Counter
+
     type_counts = Counter(dataset["event_types"])
     print(f"\nDataset shape: X={dataset['X'].shape}, y={dataset['y'].shape}")
     print(f"Event mix: {dict(type_counts)}")
