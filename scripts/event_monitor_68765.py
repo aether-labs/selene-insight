@@ -1,31 +1,21 @@
-"""Event monitor — NORAD 68765 / AST BlueBird 7 (launched 2026-04-19).
-
-Polls Space-Track for state changes and emits ready-to-tweet updates.
+"""Poll Space-Track for NORAD 68765 (AST BlueBird 7) state changes.
 On new TLE, new TIP (Tracking and Impact Prediction) message, or decay
-flag set, appends an alert line to the log.
+flag set, emit a ready-to-tweet update line and append to the alert log.
 
-Three independent signals, any one of which can fire first:
+Four independent signals from Space-Track, any one of which can fire
+first:
   - gp_history: a new TLE fit (apo / peri / INCL / a trend)
   - tip:        18 SDS reentry prediction (DECAY_EPOCH + window)
-  - satcat.DECAY_DATE: official post-reentry confirmation
+  - decay:      decay event recorded (fires BEFORE satcat sync; most
+                reliable "it's down" signal available to us)
+  - satcat.DECAY_DATE: official post-reentry confirmation (slowest;
+                hours-to-days lag behind the decay class)
 
 Trend classification uses all of (Δa, Δperi, Δapo, Δincl) because drag
 only decreases a and never changes inclination; any incl change or any
-a increase proves an active burn.
+a increase is a burn.
 
 State is persisted in state.json so we only alert on true changes.
-Processes ALL new TLEs in chronological order (not just latest) so
-intermediate burns between poll windows aren't skipped.
-
-Deployment (VPS): runs inside argus-api container via docker compose
-exec, hourly cron at :17. Script file lives in a mounted volume
-(/app/data/alerts/) so updates don't require a container rebuild.
-Credentials via SPACETRACK_USER / SPACETRACK_PASS env (sourced from
-/root/.argus-spacetrack.env in the cron entry).
-
-Reuse for future events: copy this file, update the constants at the
-top (NORAD, NAME, EPOCH_SECO1, APO/PERI/INCL_SECO1), and re-cron.
-Eventually parameterize as event_monitor.py reading a config file.
 """
 
 import json
@@ -53,7 +43,7 @@ if not USER or not PASS:
     sys.exit("SPACETRACK_USER/SPACETRACK_PASS not set")
 
 
-def fetch() -> tuple[list[dict], dict, list[dict]]:
+def fetch() -> tuple[list[dict], dict, list[dict], list[dict]]:
     with httpx.Client(timeout=60, headers={"User-Agent": "argusorb/alert"}) as c:
         c.post(
             "https://www.space-track.org/ajaxauth/login",
@@ -73,8 +63,13 @@ def fetch() -> tuple[list[dict], dict, list[dict]]:
             f"/NORAD_CAT_ID/{NORAD}"
             "/orderby/MSG_EPOCH desc/format/json"
         ).json()
+        decay = c.get(
+            "https://www.space-track.org/basicspacedata/query/class/decay"
+            f"/NORAD_CAT_ID/{NORAD}"
+            "/orderby/MSG_EPOCH desc/format/json"
+        ).json()
     satcat = satcat_rows[0] if satcat_rows else {}
-    return hist, satcat, tip
+    return hist, satcat, tip, decay
 
 
 def load_state() -> dict:
@@ -88,6 +83,7 @@ def load_state() -> dict:
         "last_bstar": None,
         "decay_date": None,
         "last_tip_id": None,
+        "last_decay_msg_epoch": None,
     }
 
 
@@ -105,7 +101,23 @@ def log(msg: str) -> None:
 
 
 def parse_epoch(s: str) -> datetime:
-    return datetime.fromisoformat(s.replace("Z", "+00:00")).replace(tzinfo=timezone.utc)
+    """Parse Space-Track datetime strings. Handles both ISO-strict formats
+    (gp_history EPOCH is padded) and the loose format used in decay_msg
+    and some catalog fields (e.g. '2026-04-20 0:00:00' with unpadded hour)."""
+    s = s.replace("Z", "").strip()
+    for fmt in (
+        "%Y-%m-%dT%H:%M:%S.%f",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",
+        "%Y-%m-%d %H:%M",
+        "%Y-%m-%d",
+    ):
+        try:
+            return datetime.strptime(s, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    # Last resort: isoformat (handles timezone offsets etc.)
+    return datetime.fromisoformat(s).replace(tzinfo=timezone.utc)
 
 
 def classify_trend(d_a: float, d_incl: float, d_peri: float, d_apo: float) -> str:
@@ -128,21 +140,44 @@ def classify_trend(d_a: float, d_incl: float, d_peri: float, d_apo: float) -> st
 
 
 def main() -> int:
-    hist, satcat, tip_msgs = fetch()
+    hist, satcat, tip_msgs, decay_msgs = fetch()
     state = load_state()
 
     changed = False
 
-    # Signal 1: official DECAY_DATE set
-    decay = satcat.get("DECAY_DATE")
-    if decay and decay != state.get("decay_date"):
-        log("STATE CHANGE: DECAY_DATE set")
+    # Signal 1: decay class record — fires BEFORE satcat.DECAY_DATE
+    # populates, so it's our earliest reliable "decayed" signal.
+    if decay_msgs:
+        latest_decay = decay_msgs[0]
+        decay_msg_epoch = latest_decay.get("MSG_EPOCH")
+        if decay_msg_epoch != state.get("last_decay_msg_epoch"):
+            decay_epoch = latest_decay.get("DECAY_EPOCH")
+            msg_type = latest_decay.get("MSG_TYPE")
+            log(f"STATE CHANGE: decay class record (MSG_EPOCH={decay_msg_epoch})")
+            log(
+                f"  DECAY_EPOCH={decay_epoch}  MSG_TYPE={msg_type}  "
+                f"source={latest_decay.get('SOURCE')}"
+            )
+            log("TWEET:")
+            log(
+                f"  {NAME} (NORAD {NORAD}) reentered. Space-Track decay record "
+                f"inserted {decay_msg_epoch}Z, DECAY_EPOCH {decay_epoch}Z. "
+                f"From 154×494 km at SECO-1 to decay in "
+                f"{_dt_delta(EPOCH_SECO1, decay_epoch)}."
+            )
+            state["last_decay_msg_epoch"] = decay_msg_epoch
+            changed = True
+
+    # Signal 2: official satcat.DECAY_DATE set (slowest; usually post-decay-class)
+    sc_decay = satcat.get("DECAY_DATE")
+    if sc_decay and sc_decay != state.get("decay_date"):
+        log("STATE CHANGE: satcat.DECAY_DATE set")
         log(
-            f"TWEET: {NAME} (NORAD {NORAD}) reentry confirmed by 18 SDS on {decay}. "
+            f"TWEET: {NAME} (NORAD {NORAD}) reentry confirmed in satcat on {sc_decay}. "
             f"From 154×494 km at SECO-1 (2026-04-19 11:38Z) to catalog decay in "
-            f"{_dt_delta(EPOCH_SECO1, decay)}."
+            f"{_dt_delta(EPOCH_SECO1, sc_decay)}."
         )
-        state["decay_date"] = decay
+        state["decay_date"] = sc_decay
         changed = True
 
     # Signal 2: new TIP message (earliest leading indicator of reentry)
@@ -198,7 +233,8 @@ def main() -> int:
         else:
             log(
                 f"no change; latest epoch still {hist_asc[-1]['EPOCH']}; "
-                f"tip_msgs={len(tip_msgs)}, gp_count={len(hist)}"
+                f"tip_msgs={len(tip_msgs)}, decay_msgs={len(decay_msgs)}, "
+                f"gp_count={len(hist)}"
             )
         return 0
 
@@ -207,7 +243,11 @@ def main() -> int:
     prev_peri = state.get("last_periapsis") or PERI_SECO1
     prev_incl = state.get("last_inclination") or INCL_SECO1
 
-    log(f"processing {len(new_tles)} new TLE(s) (gp_count={len(hist)}, tip_msgs={len(tip_msgs)})")
+    log(
+        f"processing {len(new_tles)} new TLE(s) "
+        f"(gp_count={len(hist)}, tip_msgs={len(tip_msgs)}, "
+        f"decay_msgs={len(decay_msgs)})"
+    )
 
     for r in new_tles:
         epoch = r["EPOCH"]
