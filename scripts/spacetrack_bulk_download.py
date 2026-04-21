@@ -29,9 +29,15 @@ import httpx
 BASE = "https://www.space-track.org"
 LOGIN_URL = f"{BASE}/ajaxauth/login"
 
-# Rate limits
-REQUESTS_PER_MINUTE = 20  # conservative (limit is 30)
-DELAY_BETWEEN_REQUESTS = 60.0 / REQUESTS_PER_MINUTE
+# Rate limits per Space-Track docs: 30 req/min AND 300 req/hour.
+# Hourly is the binding constraint — 5 req/min = exactly 300 req/hour.
+# Paced at 12.5 s between requests to stay comfortably under both.
+REQUESTS_PER_HOUR = 280  # 20 under the 300/hr limit
+DELAY_BETWEEN_REQUESTS = 3600.0 / REQUESTS_PER_HOUR
+
+# Backoff after hitting rate limit signal
+RATE_LIMIT_BACKOFF_S = 360  # 6 minutes — enough to clear the hourly bucket
+MAX_RETRIES_PER_OBJECT = 3
 
 
 def authenticate(client: httpx.Client, user: str, pw: str) -> bool:
@@ -69,15 +75,30 @@ def get_leo_catalog(client: httpx.Client, group: str = "") -> list[int]:
     return [int(r["NORAD_CAT_ID"]) for r in data if r.get("NORAD_CAT_ID")]
 
 
+def _is_rate_limit_payload(records) -> bool:
+    """Space-Track returns HTTP 200 with a single-element error array when
+    rate-limited. Detect it so we don't save error responses as data."""
+    if not isinstance(records, list) or len(records) != 1:
+        return False
+    first = records[0]
+    if not isinstance(first, dict):
+        return False
+    err = first.get("error", "")
+    return "rate limit" in err.lower() or "Acceptable Use" in err
+
+
 def download_history(
     client: httpx.Client,
     norad_id: int,
     output_dir: Path,
 ) -> int:
-    """Download full GP history for one NORAD ID. Returns record count."""
+    """Download full GP history for one NORAD ID. Returns record count.
+    Returns -1 for resume-skip, 0 for no data, >0 for saved records.
+    On rate limit, sleeps RATE_LIMIT_BACKOFF_S and retries up to
+    MAX_RETRIES_PER_OBJECT times."""
     outfile = output_dir / f"{norad_id}.json.gz"
     if outfile.exists():
-        return -1  # skip (resume mode)
+        return -1
 
     url = (
         f"{BASE}/basicspacedata/query/class/gp_history"
@@ -86,21 +107,45 @@ def download_history(
         f"/format/json"
     )
 
-    resp = client.get(url)
-    if resp.status_code != 200:
-        print(f"  NORAD {norad_id}: HTTP {resp.status_code}", file=sys.stderr)
-        return 0
+    for attempt in range(1, MAX_RETRIES_PER_OBJECT + 1):
+        resp = client.get(url)
+        if resp.status_code == 429:
+            print(
+                f"  NORAD {norad_id}: HTTP 429, sleeping {RATE_LIMIT_BACKOFF_S}s "
+                f"(attempt {attempt}/{MAX_RETRIES_PER_OBJECT})",
+                file=sys.stderr,
+            )
+            time.sleep(RATE_LIMIT_BACKOFF_S)
+            continue
+        if resp.status_code != 200:
+            print(f"  NORAD {norad_id}: HTTP {resp.status_code}", file=sys.stderr)
+            return 0
 
-    records = resp.json()
-    if not records:
-        return 0
+        records = resp.json()
 
-    # Save compressed
-    import gzip
-    with gzip.open(outfile, "wt") as f:
-        json.dump(records, f)
+        # Body-level rate-limit (Space-Track returns 200 with error payload)
+        if _is_rate_limit_payload(records):
+            print(
+                f"  NORAD {norad_id}: rate limit in body, sleeping "
+                f"{RATE_LIMIT_BACKOFF_S}s (attempt {attempt}/{MAX_RETRIES_PER_OBJECT})",
+                file=sys.stderr,
+            )
+            time.sleep(RATE_LIMIT_BACKOFF_S)
+            continue
 
-    return len(records)
+        if not records:
+            return 0
+
+        import gzip
+        with gzip.open(outfile, "wt") as f:
+            json.dump(records, f)
+        return len(records)
+
+    print(
+        f"  NORAD {norad_id}: gave up after {MAX_RETRIES_PER_OBJECT} retries",
+        file=sys.stderr,
+    )
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
