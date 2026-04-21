@@ -292,21 +292,31 @@ function addAnomaly(a) {
 }
 
 // ── Fetch initial data ──
-fetch("/api/starlink/constellation")
-  .then((r) => r.json())
-  .then((d) => {
-    if (d.satellites) updateConstellation(d.satellites);
-  })
-  .catch((e) => console.warn("Failed to load constellation:", e));
+function refreshConstellation() {
+  return fetch("/api/starlink/constellation")
+    .then((r) => r.json())
+    .then((d) => { if (d.satellites) updateConstellation(d.satellites); })
+    .catch((e) => console.warn("Failed to load constellation:", e));
+}
+
+refreshConstellation();
 
 fetch("/api/starlink/anomalies?limit=10")
   .then((r) => r.json())
-  .then((d) => {
-    if (d.anomalies) d.anomalies.forEach(addAnomaly);
-  })
+  .then((d) => { if (d.anomalies) d.anomalies.forEach(addAnomaly); })
   .catch(() => {});
 
-// ── WebSocket ──
+// ── Periodic refresh ──
+// The constellation endpoint is ~1.25 MB. The backend's position cache
+// updates every 5 s, but refreshing the full dataset that often is
+// wasteful (1 GB/hour per visitor, 10k Cesium point updates). 60 s is
+// plenty for an overview viz — satellites don't move visibly in 5 s
+// at the zoom level most users will be at. WebSocket stays open for
+// anomaly notifications only.
+const REFRESH_MS = 60_000;
+setInterval(refreshConstellation, REFRESH_MS);
+
+// ── WebSocket (anomalies only) ──
 function connectWs() {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const ws = new WebSocket(`${protocol}//${window.location.host}/ws/telemetry`);
@@ -319,14 +329,8 @@ function connectWs() {
   ws.onmessage = (evt) => {
     try {
       const msg = JSON.parse(evt.data);
-      if (msg.type === "positions") {
-        // Positions broadcast is lightweight (just count), re-fetch full data
-        fetch("/api/starlink/constellation")
-          .then((r) => r.json())
-          .then((d) => { if (d.satellites) updateConstellation(d.satellites); });
-      } else if (msg.type === "anomaly") {
-        addAnomaly(msg.data);
-      }
+      if (msg.type === "anomaly") addAnomaly(msg.data);
+      // 'positions' tick is ignored; refreshConstellation() handles updates.
     } catch { /* ignore */ }
   };
 

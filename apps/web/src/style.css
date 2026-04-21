@@ -86,10 +86,19 @@ h3.h-orange { color: #ffaa00 !important; }
   color: #889; font-size: 10.5px; line-height: 1.5;
   margin-bottom: 10px;
 }
-.substack-embed {
-  width: 100%; height: 82px;
-  border-radius: 3px; background: #fff;
-  display: block;
+.subscribe-btn {
+  display: block; text-align: center;
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  font-size: 11.5px; font-weight: 600; letter-spacing: 1.5px;
+  text-transform: uppercase; text-decoration: none;
+  color: #05080f; background: #00ccff;
+  padding: 9px 14px; border-radius: 3px;
+  border: 1px solid #00ccff;
+  transition: background 120ms, color 120ms, transform 120ms;
+}
+.subscribe-btn:hover {
+  background: #66e0ff; color: #05080f;
+  transform: translateY(-1px);
 }
 
 /* Footer */
