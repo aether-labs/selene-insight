@@ -49,20 +49,34 @@
         <div id="connection-status" class="status-live">LIVE</div>
       </div>
 
-      <!-- Subscribe CTA — dark-themed, dark-site-friendly -->
+      <!-- Subscribe CTA — posts directly to Substack's free-tier endpoint,
+           bypassing the pledge page. Response opens in a new tab. -->
       <div class="section subscribe-section">
         <h3>WEEKLY REPORT</h3>
         <div class="subscribe-blurb">
           Orbital anomalies, debris events, constellation health. Every Sunday.
         </div>
-        <a
-          class="subscribe-btn"
-          href="https://argusorb.substack.com/subscribe"
+        <form
+          class="subscribe-form"
+          action="https://argusorb.substack.com/api/v1/free?nojs=true"
+          method="post"
           target="_blank"
-          rel="noopener"
         >
-          Subscribe — free
-        </a>
+          <input type="hidden" name="source" value="embed" />
+          <input type="hidden" name="first_url" value="https://argusorb.io/" />
+          <input type="hidden" name="first_referrer" value="" />
+          <input type="hidden" name="current_url" value="https://argusorb.io/" />
+          <input type="hidden" name="current_referrer" value="" />
+          <input
+            class="subscribe-email"
+            type="email"
+            name="email"
+            required
+            placeholder="your@email.com"
+            autocomplete="email"
+          />
+          <button class="subscribe-btn" type="submit">Subscribe — free</button>
+        </form>
       </div>
 
       <div class="section">

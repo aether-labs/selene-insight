@@ -86,18 +86,38 @@ h3.h-orange { color: #ffaa00 !important; }
   color: #889; font-size: 10.5px; line-height: 1.5;
   margin-bottom: 10px;
 }
+.subscribe-form {
+  display: flex; flex-direction: column; gap: 8px;
+}
+.subscribe-email {
+  width: 100%;
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  font-size: 11.5px; color: #eee;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(0, 200, 255, 0.2);
+  padding: 8px 10px;
+  border-radius: 3px;
+  outline: none;
+  transition: border-color 120ms, background 120ms;
+}
+.subscribe-email::placeholder { color: #556; }
+.subscribe-email:focus {
+  border-color: #00ccff;
+  background: rgba(0, 200, 255, 0.06);
+}
 .subscribe-btn {
-  display: block; text-align: center;
+  display: block; width: 100%; text-align: center;
   font-family: 'JetBrains Mono', 'SF Mono', monospace;
   font-size: 11.5px; font-weight: 600; letter-spacing: 1.5px;
   text-transform: uppercase; text-decoration: none;
   color: #05080f; background: #00ccff;
   padding: 9px 14px; border-radius: 3px;
   border: 1px solid #00ccff;
-  transition: background 120ms, color 120ms, transform 120ms;
+  cursor: pointer;
+  transition: background 120ms, transform 120ms;
 }
 .subscribe-btn:hover {
-  background: #66e0ff; color: #05080f;
+  background: #66e0ff;
   transform: translateY(-1px);
 }
 
