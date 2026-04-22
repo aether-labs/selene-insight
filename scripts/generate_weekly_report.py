@@ -37,6 +37,7 @@ from services.report.weekly import (
 from services.report.predictions import generate_predictions, resolve_predictions
 from services.agent.investigator import investigate_all_gaps, investigate_satellite
 from services.brain.orbital_analyzer import detect_tle_gaps
+from services.report.charts import generate_all_charts
 
 
 def _auto_editor_notes(store: StarlinkStore) -> str:
@@ -179,6 +180,17 @@ def main(argv: list[str] | None = None) -> int:
     previous = load_previous_report(args.output_dir, iso_week)
     if previous:
         print(f"  loaded previous week for delta comparison")
+
+    # Step 4.5: Generate charts
+    print("\n[step 4.5] Generating charts...")
+    chart_dir = args.output_dir / f"{iso_week}-charts"
+    # Highlight satellites from the investigator findings
+    highlight_ids = [
+        r["norad_id"] for r in investigate_all_gaps(store)[:3]
+        if r.get("severity", {}).get("severity") in ("critical", "notable")
+    ] if gap_results else []
+    chart_paths = generate_all_charts(store, start_ts, end_ts, chart_dir,
+                                      highlight_norad_ids=highlight_ids)
 
     # Step 5: Render and save
     print("\n[step 5/5] Rendering...")

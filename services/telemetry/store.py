@@ -302,7 +302,7 @@ class StarlinkStore:
         conn = self._get_conn()
         rows = conn.execute(
             """SELECT t.norad_id, t.line1, t.line2, t.epoch_jd,
-                      t.inclination, t.mean_motion, t.eccentricity,
+                      t.inclination, t.mean_motion, t.eccentricity, t.bstar,
                       s.name, s.shell_km, s.status
                FROM tle t
                JOIN (SELECT norad_id, MAX(epoch_jd) as max_epoch
