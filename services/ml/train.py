@@ -298,8 +298,11 @@ def main(argv: list[str] | None = None) -> int:
     # Data
     train_dl, val_dl = load_data(args.data, args.batch_size, max_train=args.max_train)
 
+    # Detect n_features from data
+    n_features = train_dl.dataset.X.shape[-1]
+
     # Model
-    model = create_model(args.size).to(device)
+    model = create_model(args.size, n_features=n_features).to(device)
 
     if args.resume:
         print(f"Resuming from {args.resume}")

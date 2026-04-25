@@ -150,8 +150,13 @@ def satellites_to_sequences(
 ) -> tuple[np.ndarray, list[int]]:
     """Convert per-satellite TLE records into fixed-length sequences.
 
-    Returns (X, norad_ids) where X shape is (N, seq_len, 6).
-    Features: [epoch_relative_hours, mean_motion, eccentricity, inclination, bstar, alt_km]
+    Returns (X, norad_ids) where X shape is (N, seq_len, 7).
+    Features: [epoch_relative_hours, mean_motion, eccentricity, inclination,
+               bstar, alt_km, dt_hours]
+
+    dt_hours = real time since previous TLE (0 for first element in window).
+    This encodes update cadence — Space-Track increases frequency after events,
+    so a sudden drop in dt_hours is itself an anomaly signal.
     """
     all_sequences = []
     all_norad_ids = []
@@ -160,25 +165,36 @@ def satellites_to_sequences(
         if len(records) < seq_len:
             continue
 
-        # Build feature array
-        arr = np.zeros((len(records), 6))
-        for j, r in enumerate(records):
-            arr[j] = [
-                0.0,  # will fill with relative hours
-                r["mean_motion"],
-                r["eccentricity"],
-                r["inclination"],
-                r["bstar"],
-                r["alt_km"],
-            ]
+        # Compute real epoch in hours from year + fractional day
+        def _epoch_hours(r):
+            return (r["epoch_year"] * 365.25 + r["epoch_day"]) * 24.0
 
-        # Approximate epoch in hours (8h between updates typical)
-        arr[:, 0] = np.arange(len(records)) * 8.0
+        # Build feature array with real epochs
+        n = len(records)
+        arr = np.zeros((n, 7))
+        epoch_h = np.array([_epoch_hours(r) for r in records])
+
+        for j, r in enumerate(records):
+            arr[j, 1] = r["mean_motion"]
+            arr[j, 2] = r["eccentricity"]
+            arr[j, 3] = r["inclination"]
+            arr[j, 4] = r["bstar"]
+            arr[j, 5] = r["alt_km"]
+
+        arr[:, 0] = epoch_h
+
+        # dt_hours: time since previous TLE (0 for first)
+        arr[0, 6] = 0.0
+        arr[1:, 6] = np.diff(epoch_h)
+        # Clip extreme gaps (>10 days = likely different tracking arc)
+        arr[:, 6] = np.clip(arr[:, 6], 0.0, 240.0)
 
         # Sliding windows
-        for start in range(0, len(arr) - seq_len + 1, stride):
+        for start in range(0, n - seq_len + 1, stride):
             window = arr[start:start + seq_len].copy()
-            window[:, 0] -= window[0, 0]  # relative epoch
+            window[:, 0] -= window[0, 0]  # relative epoch within window
+            # Recompute dt_hours for first element of window
+            window[0, 6] = 0.0
             all_sequences.append(window)
             all_norad_ids.append(norad_id)
 

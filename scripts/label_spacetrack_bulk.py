@@ -29,10 +29,11 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 # Normalization stats for ALL Space-Track satellites (not just Starlink).
-# Computed from a 29k-sequence sample across all 29 year files.
-# B* is clipped to [-1, 1] before normalization (raw values have extreme outliers).
-BULK_FEATURE_MEANS = [196.0, 12.1633, 0.0616, 73.9842, 0.0, 4240.44]
-BULK_FEATURE_STDS = [115.45, 4.2627, 0.1683, 27.267, 0.01, 8881.41]
+# 7 features: [epoch_h, mm, ecc, incl, bstar, alt_km, dt_hours]
+# Computed from 29k-sample across all years with real epochs.
+# B* is clipped to [-1, 1] before normalization.
+BULK_FEATURE_MEANS = [660.4, 12.1691, 0.0616, 74.0276, 0.0, 4224.95, 22.94]
+BULK_FEATURE_STDS = [2170.74, 4.2558, 0.1681, 27.2085, 0.01, 8856.03, 26.79]
 
 # rule_v1 thresholds (same as orbital_analyzer.py)
 REENTRY_ALT_KM = 250.0
@@ -55,7 +56,8 @@ BREAKUP = 3  # reentry also maps here
 def label_pair(old: np.ndarray, new: np.ndarray) -> int:
     """Apply rule_v1 logic to a pair of raw (unnormalized) TLE elements.
 
-    Elements: [epoch_h, mean_motion, eccentricity, inclination, bstar, alt_km]
+    Elements: [epoch_h, mean_motion, eccentricity, inclination, bstar, alt_km, ...]
+    Uses indices 1-5 only. Extra features (dt_hours etc.) are ignored.
     Returns: label (0=normal, 1=maneuver, 2=decay, 3=breakup/reentry)
     """
     mm_old, mm_new = old[1], new[1]
@@ -110,8 +112,9 @@ def label_sequences(X_raw: np.ndarray) -> np.ndarray:
     """Label all sequences using rule_v1 on consecutive pairs (vectorized).
 
     Args:
-        X_raw: (N, T, 6) UNnormalized sequences
-               Features: [epoch_h, mean_motion, eccentricity, inclination, bstar, alt_km]
+        X_raw: (N, T, 6+) UNnormalized sequences
+               Features: [epoch_h, mean_motion, eccentricity, inclination, bstar, alt_km, ...]
+               Uses indices 1-5 only. Extra features (dt_hours) are ignored.
 
     Returns:
         y: (N, T) labels

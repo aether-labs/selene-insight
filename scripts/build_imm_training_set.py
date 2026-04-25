@@ -82,18 +82,27 @@ def extract_satellite_features(
         if len(records) > max_tles_per_sat:
             records = records[-max_tles_per_sat:]
 
-        arr = np.zeros((len(records), 6), dtype=np.float64)
+        n = len(records)
+        arr = np.zeros((n, 7), dtype=np.float64)
+
+        def _epoch_hours(r):
+            return (r["epoch_year"] * 365.25 + r["epoch_day"]) * 24.0
+
+        epoch_h = np.array([_epoch_hours(r) for r in records])
+
         for j, r in enumerate(records):
-            arr[j] = [
-                0.0,  # epoch_h placeholder
-                r["mean_motion"],
-                r["eccentricity"],
-                r["inclination"],
-                r["bstar"],
-                r["alt_km"],
-            ]
-        # Relative epoch in hours (~8h between updates)
-        arr[:, 0] = np.arange(len(records)) * 8.0
+            arr[j, 1] = r["mean_motion"]
+            arr[j, 2] = r["eccentricity"]
+            arr[j, 3] = r["inclination"]
+            arr[j, 4] = r["bstar"]
+            arr[j, 5] = r["alt_km"]
+
+        arr[:, 0] = epoch_h
+
+        # dt_hours: real time since previous TLE
+        arr[0, 6] = 0.0
+        arr[1:, 6] = np.diff(epoch_h)
+        arr[:, 6] = np.clip(arr[:, 6], 0.0, 240.0)
 
         result[nid] = arr
 
@@ -110,7 +119,7 @@ def build_sequences(
     """Build sliding-window sequences with IMM-UKF labels.
 
     Returns: (X, y_imm, y_rv1) all as numpy arrays.
-    X: (N, seq_len, 6) normalized features
+    X: (N, seq_len, 7) normalized features
     y_imm: (N, seq_len) IMM-UKF labels
     y_rv1: (N, seq_len) rule_v1 labels (for comparison)
     """
@@ -146,6 +155,7 @@ def build_sequences(
         for start in range(0, n_tles - seq_len + 1, stride):
             window = feat_arr[start:start + seq_len].copy()
             window[:, 0] -= window[0, 0]  # relative epoch
+            window[0, 6] = 0.0  # no dt for first element in window
 
             # Clip B* and normalize
             window[:, 4] = np.clip(window[:, 4], -1.0, 1.0)

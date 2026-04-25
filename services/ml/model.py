@@ -92,9 +92,16 @@ class AnalyticalPhysics(nn.Module):
         # Epoch: advances by step
         pred_epoch = epoch
 
-        return torch.stack(
+        result = torch.stack(
             [pred_epoch, pred_mm, pred_ecc, pred_incl, pred_bstar, pred_alt], dim=-1
         )
+
+        # Pass through any extra features (e.g., dt_hours) unchanged
+        if x.shape[-1] > 6:
+            extra = x[:, :, 6:]
+            result = torch.cat([result, extra], dim=-1)
+
+        return result
 
 
 class PositionalEncoding(nn.Module):
