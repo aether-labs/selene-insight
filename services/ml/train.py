@@ -204,8 +204,8 @@ def train_epoch(
     cls_weights = torch.tensor([0.4, 3.0, 4.5, 4.5], device=device)
     cls_criterion = FocalLoss(weight=cls_weights, gamma=2.0)
 
-    for X, y in loader:
-        X, y = X.to(device), y.to(device)
+    for batch in loader:
+        X, y = batch[0].to(device), batch[1].to(device)
         optimizer.zero_grad()
 
         out = model(X, causal=True)
@@ -271,8 +271,8 @@ def validate(
     pred_criterion = nn.MSELoss()
     cls_criterion = nn.CrossEntropyLoss()
 
-    for X, y in loader:
-        X, y = X.to(device), y.to(device)
+    for batch in loader:
+        X, y = batch[0].to(device), batch[1].to(device)
         out = model(X, causal=True)
         if isinstance(out, dict):
             predictions = out["predictions"]
