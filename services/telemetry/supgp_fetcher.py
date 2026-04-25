@@ -60,7 +60,9 @@ async def _fetch_url(url: str) -> str:
         resp = await client.get(
             url,
             headers={
-                "User-Agent": "argusorb/0.2 (supgp-fetcher)",
+                # Celestrak WAF blocks obvious bot User-Agents.
+                # Use a descriptive but browser-compatible UA.
+                "User-Agent": "ArgusOrb/0.2 (+https://argusorb.io; contact@argusorb.io)",
             },
         )
         resp.raise_for_status()
@@ -96,6 +98,8 @@ async def run_supgp_fetcher(
                     f"[SUPGP][{cycle:04d}] {source_name}: {type(e).__name__}: {e}",
                     file=sys.stderr,
                 )
+            # Polite delay between sources (don't hammer Celestrak)
+            await asyncio.sleep(5)
 
         if cycle == 1:
             await asyncio.sleep(10)
