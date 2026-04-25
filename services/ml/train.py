@@ -149,7 +149,9 @@ def train_epoch(
     pred_criterion = nn.MSELoss()
     # Focal Loss with class weights: combines "this class is important"
     # (weights) with "this sample is hard" (focal γ modulation).
-    cls_weights = torch.tensor([0.5, 3.0, 3.0, 3.0], device=device)
+    # Weights inversely proportional to class frequency in IMM-UKF data:
+    # normal=91.3%, maneuver=5.9%, decay=2.8% → higher weight for rarer classes
+    cls_weights = torch.tensor([0.4, 3.0, 4.5, 4.5], device=device)
     cls_criterion = FocalLoss(weight=cls_weights, gamma=2.0)
 
     for X, y in loader:
