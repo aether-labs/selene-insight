@@ -185,8 +185,12 @@ def main(argv: list[str] | None = None) -> int:
     print("\n[step 4.5] Generating charts...")
     chart_dir = args.output_dir / f"{iso_week}-charts"
     # Highlight satellites from the investigator findings
+    try:
+        gap_results = investigate_all_gaps(store)
+    except Exception:
+        gap_results = []
     highlight_ids = [
-        r["norad_id"] for r in investigate_all_gaps(store)[:3]
+        r["norad_id"] for r in gap_results[:3]
         if r.get("severity", {}).get("severity") in ("critical", "notable")
     ] if gap_results else []
     chart_paths = generate_all_charts(store, start_ts, end_ts, chart_dir,
