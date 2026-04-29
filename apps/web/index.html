@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ArgusOrb — Starlink Constellation Tracker</title>
+    <title>ArgusOrb — Space Situational Awareness Platform</title>
     <meta
       name="description"
-      content="Real-time tracking of 10,000+ Starlink satellites from public TLEs. Weekly auditable report on orbital anomalies, debris events, and constellation health."
+      content="AI-powered orbital anomaly detection for 10,000+ satellites. Multi-classifier ensemble (rule-based, IMM-UKF, neural network) trained on 232M TLE records. Weekly constellation health intelligence."
     />
 
     <!-- Open Graph / Twitter -->
@@ -45,7 +45,7 @@
     <div id="sidebar">
       <div class="sidebar-header">
         <div class="logo">ARGUSORB</div>
-        <div class="logo-sub">Space Risk Intelligence — argusorb.io</div>
+        <div class="logo-sub">AI-Powered Space Situational Awareness</div>
         <div id="connection-status" class="status-live">LIVE</div>
       </div>
 
@@ -84,6 +84,36 @@
         <div class="big-value" id="sat-count">--</div>
         <div class="row"><span class="label">ACTIVE SATELLITES</span></div>
         <div id="shell-list"></div>
+      </div>
+
+      <div class="section">
+        <h3>DETECTION PIPELINE</h3>
+        <div id="pipeline-stats">
+          <div class="stat-row">
+            <span class="stat-label">TLE ARCHIVE</span>
+            <span class="stat-value" id="tle-count">--</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">ANOMALY LABELS</span>
+            <span class="stat-value" id="anomaly-count">--</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">CLASSIFIERS</span>
+            <span class="stat-value classifier-list">rule_v1 · IMM-UKF · ML</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">ML MODEL</span>
+            <span class="stat-value">OrbitalTransformer 6.5M</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">TRAINING DATA</span>
+            <span class="stat-value">232M TLEs · 60 years</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">FEATURES</span>
+            <span class="stat-value">11D (orbital + temporal)</span>
+          </div>
+        </div>
       </div>
 
       <div class="section">
