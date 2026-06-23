@@ -43,7 +43,7 @@ if not USER or not PASS:
     sys.exit("SPACETRACK_USER/SPACETRACK_PASS not set")
 
 
-def fetch() -> tuple[list[dict], dict, list[dict], list[dict]]:
+def fetch() -> tuple[list[dict], list[dict], list[dict]]:
     with httpx.Client(timeout=60, headers={"User-Agent": "argusorb/alert"}) as c:
         c.post(
             "https://www.space-track.org/ajaxauth/login",
@@ -53,10 +53,6 @@ def fetch() -> tuple[list[dict], dict, list[dict], list[dict]]:
             "https://www.space-track.org/basicspacedata/query/class/gp_history"
             f"/NORAD_CAT_ID/{NORAD}"
             "/orderby/EPOCH desc/format/json"
-        ).json()
-        satcat_rows = c.get(
-            "https://www.space-track.org/basicspacedata/query/class/satcat"
-            f"/NORAD_CAT_ID/{NORAD}/format/json"
         ).json()
         tip = c.get(
             "https://www.space-track.org/basicspacedata/query/class/tip"
@@ -68,8 +64,7 @@ def fetch() -> tuple[list[dict], dict, list[dict], list[dict]]:
             f"/NORAD_CAT_ID/{NORAD}"
             "/orderby/MSG_EPOCH desc/format/json"
         ).json()
-    satcat = satcat_rows[0] if satcat_rows else {}
-    return hist, satcat, tip, decay
+    return hist, tip, decay
 
 
 def load_state() -> dict:
@@ -81,7 +76,6 @@ def load_state() -> dict:
         "last_periapsis": None,
         "last_inclination": None,
         "last_bstar": None,
-        "decay_date": None,
         "last_tip_id": None,
         "last_decay_msg_epoch": None,
     }
@@ -140,7 +134,7 @@ def classify_trend(d_a: float, d_incl: float, d_peri: float, d_apo: float) -> st
 
 
 def main() -> int:
-    hist, satcat, tip_msgs, decay_msgs = fetch()
+    hist, tip_msgs, decay_msgs = fetch()
     state = load_state()
 
     changed = False
@@ -167,18 +161,6 @@ def main() -> int:
             )
             state["last_decay_msg_epoch"] = decay_msg_epoch
             changed = True
-
-    # Signal 2: official satcat.DECAY_DATE set (slowest; usually post-decay-class)
-    sc_decay = satcat.get("DECAY_DATE")
-    if sc_decay and sc_decay != state.get("decay_date"):
-        log("STATE CHANGE: satcat.DECAY_DATE set")
-        log(
-            f"TWEET: {NAME} (NORAD {NORAD}) reentry confirmed in satcat on {sc_decay}. "
-            f"From 154×494 km at SECO-1 (2026-04-19 11:38Z) to catalog decay in "
-            f"{_dt_delta(EPOCH_SECO1, sc_decay)}."
-        )
-        state["decay_date"] = sc_decay
-        changed = True
 
     # Signal 2: new TIP message (earliest leading indicator of reentry)
     if tip_msgs:

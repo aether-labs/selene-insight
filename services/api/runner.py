@@ -138,12 +138,12 @@ async def run_all() -> None:
                 interval=8 * 3600,
             )
         ),
-        asyncio.create_task(
-            run_spacetrack_fetcher(
-                store=store,
-                interval=8 * 3600,
-            )
-        ),
+        # asyncio.create_task(
+        #     run_spacetrack_fetcher(
+        #         store=store,
+        #         interval=8 * 3600,
+        #     )
+        # ),
         asyncio.create_task(
             run_satnogs_fetcher(
                 store=store,

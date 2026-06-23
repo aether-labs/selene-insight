@@ -52,15 +52,43 @@ FEATURE_NAMES = [
 ]
 N_FEATURES = len(FEATURE_NAMES)
 
-# Normalization — innovation position is in meters (km scale),
-# velocity is m/s. Magnitudes chosen so anomaly signatures fall
-# roughly in the [-3, +3] normalized range.
+# Innovation is heavy-tailed: real catalog data is sub-50 km, synthetic
+# anomalies routinely reach 1000s of km, and SGP4 numerical breakdown
+# can produce 1M+ km outliers. We handle this in two steps:
+#   1) Drop trajectories with any innovation > 100,000 km (numerical
+#      divergence — beyond Earth-Moon distance, never physical).
+#   2) Apply a sign-preserving log1p transform to remaining innovation
+#      so real and synthetic data share a comparable dynamic range
+#      ([-10, +10] roughly), then z-score-normalize with std=3.0.
+CATASTROPHIC_INNOVATION_M = 1.0e8  # 100,000 km
+LOG_POS_SCALE = 1000.0  # 1 km — innovations measured in km units inside log
+LOG_VEL_SCALE = 1.0     # 1 m/s
+
 FEATURE_MEANS = np.array(
     [0.0, 15.1, 0.0005, 53.0, 0.0, 550.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 )
 FEATURE_STDS = np.array(
-    [100.0, 0.5, 0.001, 20.0, 0.005, 100.0, 2000.0, 2000.0, 2000.0, 2.0, 2.0, 2.0]
+    [100.0, 0.5, 0.001, 20.0, 0.005, 100.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0]
 )
+
+
+def log_transform_innovation(X: np.ndarray) -> np.ndarray:
+    """sign(x) · log1p(|x| / scale) on innovation channels (6:12)."""
+    X = X.copy()
+    pos = X[..., 6:9]
+    vel = X[..., 9:12]
+    X[..., 6:9] = np.sign(pos) * np.log1p(np.abs(pos) / LOG_POS_SCALE)
+    X[..., 9:12] = np.sign(vel) * np.log1p(np.abs(vel) / LOG_VEL_SCALE)
+    return X
+
+
+def drop_catastrophic_trajectories(
+    X: np.ndarray, y: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, int]:
+    """Drop sequences where SGP4 numerically diverged (any pos innovation > 100k km)."""
+    pos_mag = np.linalg.norm(X[..., 6:9], axis=-1)  # (N, T)
+    bad = (pos_mag > CATASTROPHIC_INNOVATION_M).any(axis=1)
+    return X[~bad], y[~bad], int(bad.sum())
 
 
 def normalize(X: np.ndarray) -> np.ndarray:
@@ -338,16 +366,26 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     print(f"Raw: X={X.shape}, y={y.shape}")
-    print("Innovation stats (meters):")
-    inn_mag = np.linalg.norm(X[:, :, 6:9], axis=2)  # position innovation mag
+    inn_mag = np.linalg.norm(X[:, :, 6:9], axis=2)
     print(
-        f"  position innovation — median {np.median(inn_mag):.1f} m, "
+        f"Raw innovation pos — median {np.median(inn_mag):.1f} m, "
         f"p99 {np.percentile(inn_mag, 99):.1f} m, max {inn_mag.max():.0f} m"
+    )
+
+    X, y, n_dropped = drop_catastrophic_trajectories(X, y)
+    print(f"Dropped {n_dropped} catastrophic trajectories (innovation > 100,000 km)")
+    print(f"After drop: X={X.shape}, y={y.shape}")
+
+    X = log_transform_innovation(X)
+    inn_log_mag = np.linalg.norm(X[:, :, 6:9], axis=2)
+    print(
+        f"Log-transformed innovation pos — median {np.median(inn_log_mag):.3f}, "
+        f"p99 {np.percentile(inn_log_mag, 99):.3f}, max {inn_log_mag.max():.3f}"
     )
 
     if not args.no_normalize:
         X = normalize(X)
-        print("Normalized")
+        print("Normalized (z-score with std=3.0 on innovation channels)")
 
     splits = split_dataset(X, y)
     args.output.mkdir(parents=True, exist_ok=True)
