@@ -1,1 +1,1 @@
-../substratum-internal/agent-md/gemini.md
+../../substratum-internal/agent-md/gemini.md
