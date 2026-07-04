@@ -684,3 +684,117 @@ class TrajectoryTubeSampler:
         return sampled_states
 
 
+class CalibratedEnsemblePropagator(nn.Module):
+    """Calibrated uncertainty propagator that runs ensemble rollouts with process noise.
+
+    Uses initial covariance inflation and integrated process noise spectral density
+    to match the 95% confidence ellipsoid for orbital prediction tasks.
+    """
+
+    def __init__(
+        self,
+        propagator: nn.Module,
+        ensemble_size: int = 50,
+        inflation_factor: float = 50.0,
+        q_acc: float = 1.0e-3,
+    ):
+        super().__init__()
+        self.propagator = propagator
+        self.ensemble_size = ensemble_size
+        self.inflation_factor = inflation_factor
+        self.q_acc = q_acc
+
+    def forward(
+        self, state0: torch.Tensor, cov0: torch.Tensor, t: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Propagates mean and uncertainty forward.
+
+        Args:
+            state0: Nominal initial state of shape (batch_size, 6) or (6,)
+            cov0: Initial state covariance of shape (batch_size, 6, 6) or (6, 6)
+            t: 1D tensor of evaluation time steps (seconds from epoch)
+
+        Returns:
+            mean_trajectory: Tensor of shape (batch_size, len(t), 6)
+            ensemble_trajectories: Tensor of shape (batch_size, ensemble_size, len(t), 6)
+            calibrated_covariances: Tensor of shape (batch_size, len(t), 6, 6)
+        """
+        # Ensure correct batch dimensions
+        if state0.ndim == 1:
+            state0 = state0.unsqueeze(0)  # (1, 6)
+        if cov0.ndim == 2:
+            cov0 = cov0.unsqueeze(0)  # (1, 6, 6)
+
+        B, _ = state0.shape
+        N_steps = len(t)
+        device = state0.device
+        dtype = state0.dtype
+
+        # 1. Generate initial ensemble using Cholesky factorization of cov0
+        # cov0_spd is enforced to be symmetric positive definite
+        cov0_spd = 0.5 * (cov0 + cov0.transpose(-1, -2)) + torch.eye(6, dtype=dtype, device=device) * 1e-12
+        L = torch.linalg.cholesky(cov0_spd)  # (B, 6, 6)
+
+        # Sample ensemble member initial states: shape (B, M, 6)
+        ensemble0 = torch.zeros(B, self.ensemble_size, 6, dtype=dtype, device=device)
+        for b in range(B):
+            # Sample standard normal vector in 6D
+            z = torch.randn(self.ensemble_size, 6, dtype=dtype, device=device)  # (M, 6)
+            # Project onto the Cholesky factor
+            perturb = torch.matmul(z, L[b].T)  # (M, 6)
+            ensemble0[b] = state0[b].unsqueeze(0) + perturb
+
+        # 2. Run parallel deterministic propagations for all ensemble members
+        # Flatten batch and ensemble dimensions for batch propagation: shape (B * M, 6)
+        ensemble0_flat = ensemble0.view(B * self.ensemble_size, 6)
+        
+        # Propagate flat ensemble: returns shape (B * M, N_steps, 6)
+        sol_flat = self.propagator(ensemble0_flat, t)
+        
+        # Reshape to (B, M, N_steps, 6)
+        sol_ens = sol_flat.view(B, self.ensemble_size, N_steps, 6)
+
+        # Also propagate nominal trajectory
+        sol_nom = self.propagator(state0, t)  # (B, N_steps, 6)
+
+        # 3. Calculate calibrated covariances at each timestep
+        calibrated_covs = torch.zeros(B, N_steps, 6, 6, dtype=dtype, device=device)
+        for k in range(N_steps):
+            # Time from epoch in seconds
+            t_sec = t[k].item()
+            
+            # Position-position process noise growth: q_acc * (t^3 / 3) * eye(3)
+            # Velocity-velocity process noise growth: q_acc * t * eye(3)
+            # Position-velocity cross noise growth: q_acc * (t^2 / 2) * eye(3)
+            q_term_pos = self.q_acc * (t_sec**3 / 3.0)
+            q_term_vel = self.q_acc * t_sec
+            q_term_cross = self.q_acc * (t_sec**2 / 2.0)
+            
+            # Build Q_d block covariance
+            Q_d = torch.zeros(6, 6, dtype=dtype, device=device)
+            Q_d[0:3, 0:3] = torch.eye(3, dtype=dtype, device=device) * q_term_pos
+            Q_d[3:6, 3:6] = torch.eye(3, dtype=dtype, device=device) * q_term_vel
+            Q_d[0:3, 3:6] = torch.eye(3, dtype=dtype, device=device) * q_term_cross
+            Q_d[3:6, 0:3] = torch.eye(3, dtype=dtype, device=device) * q_term_cross
+
+            for b in range(B):
+                # Retrieve ensemble states at step k: shape (M, 6)
+                ens_k = sol_ens[b, :, k, :]
+                
+                # Compute sample covariance: shape (6, 6)
+                mean_k = torch.mean(ens_k, dim=0, keepdim=True)
+                diff_k = ens_k - mean_k
+                sample_cov = torch.matmul(diff_k.T, diff_k) / (self.ensemble_size - 1)
+                
+                # Apply initial covariance inflation factor
+                cov_calibrated = sample_cov * self.inflation_factor
+                
+                # Add integrated process noise spectral density
+                cov_calibrated += Q_d
+                
+                # Ensure symmetric positive definite regularization
+                cov_calibrated = 0.5 * (cov_calibrated + cov_calibrated.T) + torch.eye(6, dtype=dtype, device=device) * 1e-6
+                calibrated_covs[b, k, :, :] = cov_calibrated
+
+        # Return nominal trajectory, ensemble, and sequence of calibrated covariances
+        return sol_nom, sol_ens, calibrated_covs
