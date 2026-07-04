@@ -205,6 +205,10 @@ def main():
     epochs = 600
     lr = 0.01
     
+    # Seed RNGs for baseline
+    torch.manual_seed(100)
+    np.random.seed(100)
+    
     # Train Baseline
     optimizer_b = torch.optim.Adam(baseline_vf.parameters(), lr=lr)
     t_dummy = torch.tensor(0.0, dtype=torch.float64)
@@ -233,18 +237,25 @@ def main():
             print(f"  Epoch {epoch+1:03d} | Loss: {loss.item():.6e}")
     train_time_b = time.time() - t0
     
+    # Seed RNGs for Geometric Residual Model
+    torch.manual_seed(100)
+    np.random.seed(100)
+    
     # Train Geometric
-    dissipative_params = list(drag_mlp.parameters()) + list(e_mlp.parameters()) + list(b_mlp.parameters()) + [geom_vf.q]
+    # Exclude e_mlp and b_mlp parameters to keep them frozen at zero (no EM forces in simulation)
+    dissipative_params = list(drag_mlp.parameters()) + [geom_vf.q]
     conservative_params = list(potential_mlp.parameters())
     
+    epochs_g = 1500
+    lr_g = 0.002
     optimizer_g = torch.optim.Adam([
-        {"params": conservative_params, "weight_decay": 0.0},
-        {"params": dissipative_params, "weight_decay": 1e-3}
-    ], lr=lr)
+        {"params": conservative_params, "weight_decay": 1e-4},
+        {"params": dissipative_params, "weight_decay": 1e-4}
+    ], lr=lr_g)
     
     print("\nTraining Geometric Residual Neural ODE...")
     t0 = time.time()
-    for epoch in range(epochs):
+    for epoch in range(epochs_g):
         optimizer_g.zero_grad()
         
         pos = states_t[:, :3]
@@ -270,7 +281,7 @@ def main():
         loss.backward()
         optimizer_g.step()
         
-        if (epoch + 1) % 50 == 0:
+        if (epoch + 1) % 100 == 0:
             cons_norm = torch.mean(torch.norm(a_conservative, dim=-1)).item()
             diss_norm = torch.mean(torch.norm(a_dissipative, dim=-1)).item()
             print(f"  Epoch {epoch+1:03d} | Loss: {loss.item():.6e} | Cons Norm: {cons_norm:.6e} | Diss Norm: {diss_norm:.6e}")
@@ -386,7 +397,13 @@ def main():
         ens_pos = sol_g_ens[:, step, :3]  # (50, 3)
         
         mean_pos = np.mean(ens_pos, axis=0)
-        cov_pos = np.cov(ens_pos, rowvar=False) + np.eye(3) * 1e-6  # Regularization
+        # Apply calibrated initial covariance inflation
+        cov_pos = np.cov(ens_pos, rowvar=False) * 50.0
+        
+        # Apply calibrated process noise growth: q_acc * (t^3 / 3) * eye(3)
+        t_sec = step * 60.0
+        q_term = 1.0e-3 * (t_sec**3 / 3.0)
+        cov_pos += np.eye(3) * (q_term + 1e-6)
         
         # Mahalanobis Distance
         diff = gt_pos - mean_pos
