@@ -475,213 +475,7 @@ class GeometricResidualPropagator(nn.Module):
         sol = sol.permute(1, 0, 2)
         return sol
 
-
-class TrajectoryTubeSampler:
-    """Generates collocation points by propagating covariance ellipsoids and sampling within them.
-
-    Supports propagation via:
-      - STM (State Transition Matrix / Extended Kalman Filter style)
-      - UKF (Unscented Kalman Filter / Unscented Transform style)
-    """
-
-    def __init__(self, vector_field: nn.Module, q_process_noise: float = 1e-10):
-        super().__init__()
-        self.vector_field = vector_field
-        # Process noise diagonal coefficient
-        self.q_coef = q_process_noise
-
-    def propagate_covariance_stm(
-        self, states: torch.Tensor, t_eval: torch.Tensor, P0: torch.Tensor
-    ) -> torch.Tensor:
-        """Propagates the initial covariance P0 along the trajectory 'states' using STM.
-
-        Args:
-            states: Tensor of shape (B, N_steps, 6) - nominal trajectory states
-            t_eval: Tensor of shape (N_steps,) - time steps
-            P0: Tensor of shape (B, 6, 6) - initial covariance
-
-        Returns:
-            P_seq: Tensor of shape (B, N_steps, 6, 6) - propagated covariance matrices
-        """
-        B, N_steps, _ = states.shape
-        device = states.device
-        dtype = states.dtype
-
-        P_seq = torch.zeros(B, N_steps, 6, 6, dtype=dtype, device=device)
-        P_seq[:, 0, :, :] = P0
-
-        # Process noise covariance matrix
-        Q = torch.eye(6, dtype=dtype, device=device) * self.q_coef
-
-        P = P0.clone()
-        for k in range(N_steps - 1):
-            t = t_eval[k]
-            dt = t_eval[k + 1] - t_eval[k]
-            x_k = states[:, k, :]
-
-            # Compute Jacobian A = df/dx at x_k
-            A = torch.zeros(B, 6, 6, dtype=dtype, device=device)
-            for i in range(6):
-                grad_outputs = torch.zeros(B, 6, dtype=dtype, device=device)
-                grad_outputs[:, i] = 1.0
-                x_in = x_k.clone().detach().requires_grad_(True)
-                f_val = self.vector_field(t, x_in)
-                grads = torch.autograd.grad(
-                    f_val, x_in, grad_outputs=grad_outputs, create_graph=False, retain_graph=False
-                )[0]
-                A[:, i, :] = grads
-
-            # STM: Phi = I + A * dt
-            Phi = torch.eye(6, dtype=dtype, device=device).unsqueeze(0) + A * dt
-
-            # Propagate P_next = Phi * P * Phi^T + Q * dt
-            P = Phi @ P @ Phi.transpose(-1, -2) + Q * dt
-            P_seq[:, k + 1, :, :] = P
-
-        return P_seq
-
-    def propagate_covariance_ukf(
-        self, states: torch.Tensor, t_eval: torch.Tensor, P0: torch.Tensor
-    ) -> torch.Tensor:
-        """Propagates the initial covariance P0 along the trajectory 'states' using UKF.
-
-        Args:
-            states: Tensor of shape (B, N_steps, 6) - nominal trajectory states
-            t_eval: Tensor of shape (N_steps,) - time steps
-            P0: Tensor of shape (B, 6, 6) - initial covariance
-
-        Returns:
-            P_seq: Tensor of shape (B, N_steps, 6, 6) - propagated covariance matrices
-        """
-        B, N_steps, _ = states.shape
-        device = states.device
-        dtype = states.dtype
-
-        P_seq = torch.zeros(B, N_steps, 6, 6, dtype=dtype, device=device)
-        P_seq[:, 0, :, :] = P0
-
-        # Process noise covariance matrix
-        Q = torch.eye(6, dtype=dtype, device=device) * self.q_coef
-
-        # UKF parameters
-        L = 6
-        alpha = 1e-1
-        beta = 2.0
-        kappa = 0.0
-        lam = alpha**2 * (L + kappa) - L
-
-        w_m = torch.zeros(13, dtype=dtype, device=device)
-        w_c = torch.zeros(13, dtype=dtype, device=device)
-        w_m[0] = lam / (L + lam)
-        w_c[0] = lam / (L + lam) + (1.0 - alpha**2 + beta)
-        w_m[1:] = 1.0 / (2.0 * (L + lam))
-        w_c[1:] = 1.0 / (2.0 * (L + lam))
-
-        P = P0.clone()
-        mean_state = states[:, 0, :]
-
-        # Setup temporary one-step ODE propagator for sigma points
-        for k in range(N_steps - 1):
-            t = t_eval[k]
-            dt = t_eval[k + 1] - t_eval[k]
-
-            # 1. Generate sigma points from mean_state and P
-            P_spd = 0.5 * (P + P.transpose(-1, -2)) + torch.eye(6, dtype=dtype, device=device) * 1e-12
-            L_chol = torch.linalg.cholesky(P_spd)
-            scale = torch.sqrt(torch.tensor(L + lam, dtype=dtype, device=device))
-            scaled_L_t = (scale * L_chol).transpose(-1, -2)  # (B, 6, 6)
-
-            sigma = torch.zeros(B, 13, 6, dtype=dtype, device=device)
-            sigma[:, 0, :] = mean_state
-            sigma[:, 1:7, :] = mean_state.unsqueeze(1) + scaled_L_t
-            sigma[:, 7:13, :] = mean_state.unsqueeze(1) - scaled_L_t
-
-            # 2. Propagate each sigma point by dt using RK4
-            sigma_flat = sigma.view(-1, 6)
-
-            # RK4 step closure
-            def rk4_step(y, t_val, dt_val, f_vf):
-                k1 = f_vf(t_val, y)
-                k2 = f_vf(t_val + 0.5 * dt_val, y + 0.5 * dt_val * k1)
-                k3 = f_vf(t_val + 0.5 * dt_val, y + 0.5 * dt_val * k2)
-                k4 = f_vf(t_val + dt_val, y + dt_val * k3)
-                return y + (dt_val / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
-
-            sigma_prop_flat = rk4_step(sigma_flat, t, dt, self.vector_field)
-            sigma_prop = sigma_prop_flat.view(B, 13, 6)
-
-            # 3. Reconstruct mean and covariance
-            mean_state = torch.sum(w_m.view(1, 13, 1) * sigma_prop, dim=1)
-            diff = sigma_prop - mean_state.unsqueeze(1)
-            outer = diff.unsqueeze(-1) @ diff.unsqueeze(-2)
-            P = torch.sum(w_c.view(1, 13, 1, 1) * outer, dim=1) + Q * dt
-
-            P_seq[:, k + 1, :, :] = P
-
-        return P_seq
-
-    def sample_tube(
-        self,
-        states: torch.Tensor,
-        P_seq: torch.Tensor,
-        num_samples_per_step: int = 5,
-        sigma_limit: float = 3.0,
-        pos_inflation: float = 0.0,
-        vel_inflation: float = 0.0,
-    ) -> torch.Tensor:
-        """Samples collocation points within the covariance ellipsoids along the trajectory.
-
-        Args:
-            states: Nominal trajectory states of shape (B, N_steps, 6)
-            P_seq: Covariance matrices of shape (B, N_steps, 6, 6)
-            num_samples_per_step: Number of off-trajectory points to sample at each time step
-            sigma_limit: Mahalanobis distance limit for sampling (e.g. 3.0 for 3-sigma)
-            pos_inflation: Minimum position standard deviation floor (meters)
-            vel_inflation: Minimum velocity standard deviation floor (m/s)
-
-        Returns:
-            sampled_states: Tensor of shape (B, N_steps, num_samples_per_step, 6)
-        """
-        B, N_steps, _ = states.shape
-        device = states.device
-        dtype = states.dtype
-
-        sampled_states = torch.zeros(B, N_steps, num_samples_per_step, 6, dtype=dtype, device=device)
-
-        # Create diagonal inflation matrix
-        inflation_diag = torch.tensor(
-            [pos_inflation**2] * 3 + [vel_inflation**2] * 3,
-            dtype=dtype,
-            device=device,
-        )
-        inflation_matrix = torch.diag(inflation_diag).unsqueeze(0)  # (1, 6, 6)
-
-        for k in range(N_steps):
-            P = P_seq[:, k, :, :]  # (B, 6, 6)
-            mean = states[:, k, :]  # (B, 6)
-
-            # Apply isotropic diagonal inflation
-            P_inflated = P + inflation_matrix
-
-            # Ensure P is SPD
-            P_spd = 0.5 * (P_inflated + P_inflated.transpose(-1, -2)) + torch.eye(6, dtype=dtype, device=device) * 1e-12
-            L_chol = torch.linalg.cholesky(P_spd)  # (B, 6, 6)
-
-            for s in range(num_samples_per_step):
-                # 1. Sample standard normal vector in 6D
-                z = torch.randn(B, 6, dtype=dtype, device=device)
-                z_norm = torch.norm(z, dim=-1, keepdim=True)
-                z_dir = z / torch.clamp(z_norm, min=1e-9)
-
-                # 2. Sample radius from uniform volume distribution
-                u = torch.rand(B, 1, dtype=dtype, device=device)
-                r = sigma_limit * (u ** (1.0 / 6.0))  # 6D radius
-
-                # 3. Shift and scale by Cholesky factor
-                scaled_perturb = L_chol @ (r * z_dir).unsqueeze(-1)  # (B, 6, 1)
-                sampled_states[:, k, s, :] = mean + scaled_perturb.squeeze(-1)
-
-        return sampled_states
+from services.ml.sampler import TrajectoryTubeSampler
 
 
 class CalibratedEnsemblePropagator(nn.Module):
@@ -798,3 +592,93 @@ class CalibratedEnsemblePropagator(nn.Module):
 
         # Return nominal trajectory, ensemble, and sequence of calibrated covariances
         return sol_nom, sol_ens, calibrated_covs
+
+
+class SundmanNeuralODEVectorField(nn.Module):
+    """Wraps a standard 6D physical-time vector field and converts it to Sundman fictitious time.
+
+    Standard Sundman transformation: dy/ds = r * dy/dt, where s is fictitious time.
+    """
+
+    def __init__(self, base_vector_field: nn.Module):
+        super().__init__()
+        self.base_vector_field = base_vector_field
+
+    def forward(self, s: torch.Tensor, state: torch.Tensor) -> torch.Tensor:
+        # state: shape (batch_size, 7) -> [x, y, z, vx, vy, vz, t]
+        pos = state[:, :3]
+        vel = state[:, 3:6]
+        r = torch.norm(pos, dim=-1, keepdim=True)
+        r_safe = torch.clamp(r, min=1e-3)
+
+        # Extract 6D state for the base vector field
+        state_6d = state[:, :6]
+        t = state[:, 6:7]
+
+        # Evaluate base vector field: returns 6D derivative [v, a]
+        deriv_6d = self.base_vector_field(torch.mean(t), state_6d)
+
+        # Apply Sundman scaling: ds = dt / r -> dy/ds = r * dy/dt
+        d_pos = r_safe * deriv_6d[:, :3]
+        d_vel = r_safe * deriv_6d[:, 3:6]
+        d_time = r_safe
+
+        return torch.cat([d_pos, d_vel, d_time], dim=-1)
+
+
+class SundmanNeuralODEPropagator(nn.Module):
+    """Numerical propagator that integrates orbits in Sundman fictitious time domain.
+
+    This resolves integration stiffness near pericenter for highly eccentric orbits.
+    """
+
+    def __init__(
+        self,
+        vector_field: nn.Module,
+        rtol: float = 1e-5,
+        atol: float = 1e-7,
+        method: str = "rk4",
+        use_adjoint: bool = False,
+    ):
+        super().__init__()
+        self.sundman_vector_field = SundmanNeuralODEVectorField(vector_field)
+        self.rtol = rtol
+        self.atol = atol
+        self.method = method
+        self.use_adjoint = use_adjoint
+
+    def forward(self, state0: torch.Tensor, s_span: torch.Tensor) -> torch.Tensor:
+        """Propagates state0 forward in fictitious time s.
+
+        Args:
+            state0: Cartesian initial state of shape (batch_size, 6)
+            s_span: 1D tensor of fictitious time s steps (seconds equivalent)
+
+        Returns:
+            trajectory_7d: Tensor of shape (batch_size, len(s_span), 7) -> [pos, vel, t]
+        """
+        solver = odeint_adjoint if self.use_adjoint else odeint
+        s_eval = s_span.to(device=state0.device, dtype=state0.dtype)
+
+        # Append initial time t=0.0 to states: shape (batch_size, 7)
+        B = state0.shape[0]
+        time0 = torch.zeros((B, 1), dtype=state0.dtype, device=state0.device)
+        state0_7d = torch.cat([state0, time0], dim=-1)
+
+        options = {}
+        if self.method == "rk4":
+            options = {"step_size": s_eval[1] - s_eval[0]}
+
+        sol = solver(
+            self.sundman_vector_field,
+            state0_7d,
+            s_eval,
+            rtol=self.rtol,
+            atol=self.atol,
+            method=self.method,
+            options=options,
+        )
+
+        # Reshape to (batch_size, len(s_span), 7)
+        sol = sol.permute(1, 0, 2)
+        return sol
