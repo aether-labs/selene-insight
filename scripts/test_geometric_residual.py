@@ -77,15 +77,31 @@ def generate_orbit(n_steps: int = 1000, dt_s: float = 60.0, seed: int = 42) -> t
     """Generate orbit states and true residual accelerations."""
     rng = np.random.default_rng(seed)
     
-    # Circular LEO altitude ~500km
-    alt = 500000.0
+    # Circular LEO altitude ~500km, randomized by seed to create independent test trajectories
+    alt = 500000.0 + rng.uniform(-10000.0, 10000.0)
     r_mag = R_EARTH + alt
     v_mag = np.sqrt(MU_EARTH / r_mag)
     
-    # Random Raam/Inclination
-    incl = 51.6 * np.pi / 180
-    pos0 = np.array([r_mag, 0.0, 0.0])
-    vel0 = np.array([0.0, v_mag * np.cos(incl), v_mag * np.sin(incl)])
+    incl = (51.6 + rng.uniform(-2.0, 2.0)) * np.pi / 180
+    raan = rng.uniform(0.0, 2.0 * np.pi)
+    
+    # Orbital plane rotation
+    pos_orb = np.array([r_mag, 0.0, 0.0])
+    vel_orb = np.array([0.0, v_mag, 0.0])
+    
+    R1 = np.array([
+        [np.cos(raan), -np.sin(raan), 0.0],
+        [np.sin(raan), np.cos(raan), 0.0],
+        [0.0, 0.0, 1.0]
+    ])
+    R2 = np.array([
+        [1.0, 0.0, 0.0],
+        [0.0, np.cos(incl), -np.sin(incl)],
+        [0.0, np.sin(incl), np.cos(incl)]
+    ])
+    T = R1 @ R2
+    pos0 = T @ pos_orb
+    vel0 = T @ vel_orb
     state = np.concatenate([pos0, vel0])
     
     states = []
@@ -110,10 +126,11 @@ def generate_orbit(n_steps: int = 1000, dt_s: float = 60.0, seed: int = 42) -> t
         
         # True residual force (J3 + J4 + Drag perturbation)
         a_j3 = get_j3_acceleration(pos)
+        a_j4 = get_j4_acceleration(pos)
         a_drag = get_drag_perturbation(pos, vel)
         
         # Total true residual acceleration to learn
-        a_res = 500.0 * a_j3 + a_drag
+        a_res = 500.0 * a_j3 + 500.0 * a_j4 + a_drag
         
         states.append(state.copy())
         residuals.append(a_res.copy())
@@ -133,7 +150,7 @@ def generate_orbit(n_steps: int = 1000, dt_s: float = 60.0, seed: int = 42) -> t
                 f2_st * z_st * (5.0 * z2_st / r2_st - 3.0)
             ])
             # Residual terms
-            a_res_st = 500.0 * get_j3_acceleration(p) + get_drag_perturbation(p, v)
+            a_res_st = 500.0 * get_j3_acceleration(p) + 500.0 * get_j4_acceleration(p) + get_drag_perturbation(p, v)
             return np.concatenate([v, a_g + a_j2_st + a_res_st])
             
         k1 = f(state)
@@ -182,7 +199,7 @@ def main():
     
     # B. Geometric Residual Neural ODE
     potential_mlp = DifferentiablePotentialMLP(hidden_dim=hidden_dim)
-    drag_mlp = ResidualAccelerationNet(hidden_dim=hidden_dim, num_layers=3, dropout=0.0)
+    drag_mlp = ResidualAccelerationNet(hidden_dim=hidden_dim, num_layers=3, dropout=0.0, out_dim=1)
     e_mlp = Position3DNet(hidden_dim=hidden_dim)
     b_mlp = Position3DNet(hidden_dim=hidden_dim)
     
@@ -249,7 +266,7 @@ def main():
     epochs_g = 1500
     lr_g = 0.002
     optimizer_g = torch.optim.Adam([
-        {"params": conservative_params, "weight_decay": 1e-4},
+        {"params": conservative_params, "weight_decay": 0.0},
         {"params": dissipative_params, "weight_decay": 1e-4}
     ], lr=lr_g)
     
@@ -266,9 +283,17 @@ def main():
         # Predict conservative part
         a_conservative = -potential_mlp.grad(pos_norm) * 1e-3
         
-        # Predict dissipative part
+        # Predict dissipative part (1D drag projected along relative velocity)
+        v_rel = vel.clone()
+        v_rel[:, 0] = vel[:, 0] + OMEGA_EARTH * pos[:, 1]
+        v_rel[:, 1] = vel[:, 1] - OMEGA_EARTH * pos[:, 0]
+        v_rel_mag = torch.norm(v_rel, dim=-1, keepdim=True)
+        v_rel_dir = v_rel / torch.clamp(v_rel_mag, min=1e-9)
+        
         state_norm = torch.cat([pos_norm, vel_norm], dim=-1)
-        a_drag_res = drag_mlp(state_norm)
+        drag_output = drag_mlp(state_norm)
+        a_drag_res = -drag_output * v_rel_dir * 1e-5
+        
         E = e_mlp(pos_norm)
         B = b_mlp(pos_norm)
         v_cross_B = torch.cross(vel_norm, B, dim=-1)
@@ -405,10 +430,20 @@ def main():
         q_term = 1.0e-3 * (t_sec**3 / 3.0)
         cov_pos += np.eye(3) * (q_term + 1e-6)
         
-        # Mahalanobis Distance
         diff = gt_pos - mean_pos
-        inv_cov = np.linalg.inv(cov_pos)
-        md2 = diff.T @ inv_cov @ diff
+        
+        # Mahalanobis Distance & NLL using numerically stable Cholesky decomposition
+        try:
+            L = np.linalg.cholesky(cov_pos)
+            y = np.linalg.solve(L, diff)
+            md2 = y.T @ y
+            logdet = 2.0 * np.sum(np.log(np.diag(L)))
+        except np.linalg.LinAlgError:
+            cov_pos_reg = cov_pos + np.eye(3) * 1e-6
+            inv_cov = np.linalg.inv(cov_pos_reg)
+            md2 = diff.T @ inv_cov @ diff
+            logdet = np.log(np.linalg.det(cov_pos_reg))
+            
         md = np.sqrt(md2)
         
         # 95% Confidence Ellipsoid check (d_M <= 2.796 for 3D position)
@@ -416,8 +451,7 @@ def main():
         coverages_pos.append(is_covered)
         
         # Negative Log-Likelihood
-        det_cov = np.linalg.det(cov_pos)
-        nll = 0.5 * np.log(det_cov) + 0.5 * md2 + 1.5 * np.log(2.0 * np.pi)
+        nll = 0.5 * logdet + 0.5 * md2 + 1.5 * np.log(2.0 * np.pi)
         nlls_pos.append(nll)
         
         # Continuous Ranked Probability Score (CRPS)

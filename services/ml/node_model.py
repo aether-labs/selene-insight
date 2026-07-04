@@ -204,7 +204,7 @@ class NeuralODEPropagator(nn.Module):
 
         # Run integration
         # Note: torchdiffeq requires t to be float32 or float64 matching y0
-        t_eval = t.to(state0.dtype)
+        t_eval = t.to(device=state0.device, dtype=state0.dtype)
 
         # Integrate
         # If method is rk4, we can specify options like step_size if needed
@@ -456,7 +456,7 @@ class GeometricResidualPropagator(nn.Module):
 
     def forward(self, state0: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         solver = odeint_adjoint if self.use_adjoint else odeint
-        t_eval = t.to(state0.dtype)
+        t_eval = t.to(device=state0.device, dtype=state0.dtype)
 
         options = {}
         if self.method == "rk4":
