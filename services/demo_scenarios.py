@@ -6,7 +6,7 @@ hypotheses. They are not production automation rules.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Sequence
 
 
@@ -252,9 +252,52 @@ def validate_demo_scenarios(scenarios: Sequence[ArgusDemoScenario]) -> None:
         raise ValueError(f"missing required hypothesis coverage: {sorted(missing)}")
 
 
-def scenarios_to_jsonable(scenarios):
-    return []
+def scenarios_to_jsonable(
+    scenarios: Sequence[ArgusDemoScenario],
+) -> list[dict[str, object]]:
+    """Return stable JSON-serializable dictionaries for scenario export."""
+    validate_demo_scenarios(scenarios)
+    return [asdict(scenario) for scenario in scenarios]
 
 
-def render_scenarios_markdown(scenarios):
-    return ""
+def render_scenarios_markdown(scenarios: Sequence[ArgusDemoScenario]) -> str:
+    """Render an expert-review packet for interviews and Gemini review."""
+    validate_demo_scenarios(scenarios)
+
+    lines = [
+        "# T-119-B Argus Demo Scenarios",
+        "",
+        "These scenarios compress public CDM/SSA workflow hypotheses into concrete review surfaces.",
+        "They are probes for expert correction, not production automation rules.",
+        "",
+    ]
+
+    for index, scenario in enumerate(scenarios, start=1):
+        lines.extend(
+            [
+                f"## Scenario {index}: {scenario.title}",
+                "",
+                scenario.summary,
+                "",
+                f"**Scenario ID:** `{scenario.scenario_id}`",
+                f"Hypotheses: {', '.join(str(item) for item in scenario.hypotheses)}",
+                "",
+                "### Metrics",
+            ]
+        )
+        for metric in scenario.metrics:
+            unit = f" {metric.unit}" if metric.unit else ""
+            lines.append(f"- `{metric.name}`: {metric.value}{unit}")
+
+        lines.extend(["", "### Decision Steps"])
+        for step in scenario.decision_steps:
+            lines.append(f"- **{step.stage}:** {step.action} Rationale: {step.rationale}")
+
+        lines.extend(
+            ["", "### Expected Posture", scenario.expected_posture, "", "## Expert Correction Prompts"]
+        )
+        for prompt in scenario.expert_prompts:
+            lines.append(f"- {prompt}")
+        lines.append("")
+
+    return "\n".join(lines).rstrip() + "\n"
