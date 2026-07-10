@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import pytest
 
@@ -9,6 +10,10 @@ from services.demo_scenarios import (
     scenarios_to_jsonable,
     validate_demo_scenarios,
 )
+
+
+ROOT = Path(__file__).resolve().parents[1]
+DEMO_SCENARIO_DIR = ROOT / "data" / "demo_scenarios"
 
 
 def test_builds_exactly_three_named_demo_scenarios():
@@ -74,6 +79,20 @@ def test_markdown_packet_contains_titles_prompts_and_hypotheses():
     assert "Active-Active CAM With Secondary Screening Constraints" in markdown
     assert "## Expert Correction Prompts" in markdown
     assert "**Hypotheses:** 1, 2, 5, 10, 16, 19" in markdown
+
+
+def test_committed_demo_scenario_artifacts_match_generator_output():
+    scenarios = build_demo_scenarios()
+
+    expected_json = json.dumps(scenarios_to_jsonable(scenarios), indent=2) + "\n"
+    expected_markdown = render_scenarios_markdown(scenarios)
+
+    assert (
+        DEMO_SCENARIO_DIR / "t119b_argus_demo_scenarios.json"
+    ).read_text(encoding="utf-8") == expected_json
+    assert (
+        DEMO_SCENARIO_DIR / "t119b_argus_demo_scenarios.md"
+    ).read_text(encoding="utf-8") == expected_markdown
 
 
 def test_generator_writes_json_and_markdown(tmp_path, monkeypatch):

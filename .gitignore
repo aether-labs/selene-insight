@@ -30,3 +30,4 @@ data/bulk/
 data/imm_ukf_labeled*/
 checkpoints/
 .claude/
+.superpowers/
