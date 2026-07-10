@@ -82,3 +82,48 @@ DONE_WITH_CONCERNS
 
 - Default `python3` cannot run pytest in this checkout, so verification used `/Users/yong/projects/substratum/argus/.venv/bin/python`.
 - Running pytest without `-p no:cacheprovider` in this sandbox emits `.pytest_cache` permission warnings. The passing verification commands disabled the cache provider to keep output clean.
+
+---
+
+## Review Fix: Direct Script Import Path
+
+### Status
+
+DONE_WITH_CONCERNS
+
+### Reviewer Finding Addressed
+
+- Updated `scripts/generate_demo_scenarios.py` to match the existing Argus direct-script import convention before importing `services.demo_scenarios`.
+- Compared against local examples:
+  - `scripts/generate_weekly_report.py`
+  - `scripts/test_node_model.py`
+
+### Files Changed
+
+- `scripts/generate_demo_scenarios.py`
+- `.superpowers/sdd/task-4-report.md`
+
+### Verification Evidence
+
+```bash
+/Users/yong/projects/substratum/argus/.venv/bin/python -m pytest -p no:cacheprovider tests/test_demo_scenarios.py -q
+```
+
+Result:
+
+```text
+.......                                                                  [100%]
+7 passed in 0.01s
+```
+
+```bash
+/Users/yong/projects/substratum/argus/.venv/bin/python scripts/generate_demo_scenarios.py
+```
+
+Result:
+
+```text
+PermissionError: [Errno 1] Operation not permitted: '/Users/yong/projects/substratum/argus/data/demo_scenarios'
+```
+
+The direct script invocation now reaches artifact directory creation; the remaining direct-run failure is the controller sandbox write restriction on `data/demo_scenarios`.
