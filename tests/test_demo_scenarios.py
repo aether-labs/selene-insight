@@ -73,4 +73,4 @@ def test_markdown_packet_contains_titles_prompts_and_hypotheses():
     assert "Low Miss Distance With Pc Dilution And Small Debris" in markdown
     assert "Active-Active CAM With Secondary Screening Constraints" in markdown
     assert "## Expert Correction Prompts" in markdown
-    assert "Hypotheses: 1, 2, 5, 10, 16, 19" in markdown
+    assert "**Hypotheses:** 1, 2, 5, 10, 16, 19" in markdown

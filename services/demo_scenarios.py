@@ -280,7 +280,7 @@ def render_scenarios_markdown(scenarios: Sequence[ArgusDemoScenario]) -> str:
                 scenario.summary,
                 "",
                 f"**Scenario ID:** `{scenario.scenario_id}`",
-                f"Hypotheses: {', '.join(str(item) for item in scenario.hypotheses)}",
+                f"**Hypotheses:** {', '.join(str(item) for item in scenario.hypotheses)}",
                 "",
                 "### Metrics",
             ]
