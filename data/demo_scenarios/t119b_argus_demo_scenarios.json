@@ -1,0 +1,239 @@
+[
+  {
+    "scenario_id": "high_pc_stale_data",
+    "title": "High Pc With Stale And Unstable Data",
+    "summary": "A high-Pc conjunction approaches TCA with stale observations, unstable CDM timing, and a narrowing command upload window.",
+    "hypotheses": [
+      1,
+      2,
+      5,
+      10,
+      16,
+      19
+    ],
+    "metrics": [
+      {
+        "name": "probability_of_collision",
+        "value": "2.4e-4",
+        "unit": null
+      },
+      {
+        "name": "time_since_last_observation_primary",
+        "value": "82",
+        "unit": "hours"
+      },
+      {
+        "name": "time_since_last_observation_secondary",
+        "value": "91",
+        "unit": "hours"
+      },
+      {
+        "name": "tca_variation_last_three_cdms",
+        "value": "1.8",
+        "unit": "seconds"
+      },
+      {
+        "name": "time_to_tca",
+        "value": "31",
+        "unit": "hours"
+      },
+      {
+        "name": "next_command_window_before_tca",
+        "value": "5.5",
+        "unit": "hours"
+      }
+    ],
+    "decision_steps": [
+      {
+        "stage": "Intake",
+        "action": "Escalate the CDM to analyst review.",
+        "rationale": "Pc exceeds the public high-risk threshold."
+      },
+      {
+        "stage": "Tracking",
+        "action": "Request fresh tracking before final burn commitment.",
+        "rationale": "Both objects have stale observations and unstable TCA updates."
+      },
+      {
+        "stage": "Planning",
+        "action": "Start preliminary CAM planning while waiting for updated OD.",
+        "rationale": "The event is inside the 48-hour planning window."
+      },
+      {
+        "stage": "Go/No-Go",
+        "action": "Lock a decision before the final viable command pass.",
+        "rationale": "The upload window may close before the next CDM resolves uncertainty."
+      }
+    ],
+    "expert_prompts": [
+      "Would your team wait for another CDM here, or lock the command-window decision earlier?",
+      "Which data source would you request first when both TSLO and TCA variation are bad?",
+      "What threshold would make this transition from monitoring to maneuver execution?"
+    ],
+    "expected_posture": "Escalate, request fresh tracking, prepare a CAM, and defer final execution until tracking improves or the command window forces a choice."
+  },
+  {
+    "scenario_id": "pc_dilution_small_debris",
+    "title": "Low Miss Distance With Pc Dilution And Small Debris",
+    "summary": "A low computed Pc masks dangerous geometry because the secondary object is small debris with a large, possibly non-realistic covariance.",
+    "hypotheses": [
+      3,
+      4,
+      8,
+      13,
+      14,
+      17,
+      29
+    ],
+    "metrics": [
+      {
+        "name": "probability_of_collision",
+        "value": "7.5e-6",
+        "unit": null
+      },
+      {
+        "name": "total_miss_distance",
+        "value": "142",
+        "unit": "m"
+      },
+      {
+        "name": "combined_hard_body_radius",
+        "value": "18",
+        "unit": "m"
+      },
+      {
+        "name": "relative_velocity",
+        "value": "14.2",
+        "unit": "km/s"
+      },
+      {
+        "name": "secondary_rcs",
+        "value": "0.04",
+        "unit": "m^2"
+      },
+      {
+        "name": "secondary_position_sigma_major_axis",
+        "value": "3.8",
+        "unit": "km"
+      },
+      {
+        "name": "fragmentation_event_age",
+        "value": "5",
+        "unit": "days"
+      }
+    ],
+    "decision_steps": [
+      {
+        "stage": "Intake",
+        "action": "Generate a pre-alert despite Pc being below the action threshold.",
+        "rationale": "The object is inside the screening volume with hypervelocity geometry."
+      },
+      {
+        "stage": "Covariance Review",
+        "action": "Flag covariance dilution and inspect Mahalanobis proximity.",
+        "rationale": "Large uncertainty can reduce Pc while preserving dangerous geometry."
+      },
+      {
+        "stage": "Debris Handling",
+        "action": "Increase safety margin and request additional tracking.",
+        "rationale": "Small, recent-fragment debris has higher covariance and drag uncertainty."
+      },
+      {
+        "stage": "Operator Review",
+        "action": "Ask the analyst whether geometry should override low Pc.",
+        "rationale": "The scenario tests whether Pc-only automation would suppress a real concern."
+      }
+    ],
+    "expert_prompts": [
+      "Would a low Pc suppress this alert in your current workflow?",
+      "Do you use Mahalanobis distance or another geometry check for dilution cases?",
+      "How do you alter thresholds for small debris or fresh fragmentation events?"
+    ],
+    "expected_posture": "Do not dismiss the event solely because Pc is low; escalate based on geometry, debris uncertainty, and covariance realism concerns."
+  },
+  {
+    "scenario_id": "active_active_secondary_screening",
+    "title": "Active-Active CAM With Secondary Screening Constraints",
+    "summary": "Two active spacecraft can maneuver, but one proposed CAM creates a secondary conjunction and another violates thermal attitude constraints.",
+    "hypotheses": [
+      6,
+      7,
+      9,
+      18,
+      20,
+      23,
+      24,
+      27
+    ],
+    "metrics": [
+      {
+        "name": "probability_of_collision",
+        "value": "1.6e-4",
+        "unit": null
+      },
+      {
+        "name": "time_to_tca",
+        "value": "22",
+        "unit": "hours"
+      },
+      {
+        "name": "primary_delta_v_budget_remaining",
+        "value": "11.4",
+        "unit": "m/s"
+      },
+      {
+        "name": "secondary_delta_v_budget_remaining",
+        "value": "42.0",
+        "unit": "m/s"
+      },
+      {
+        "name": "best_safe_cam_delta_v",
+        "value": "0.18",
+        "unit": "m/s"
+      },
+      {
+        "name": "candidate_secondary_conjunction_pc",
+        "value": "3.1e-5",
+        "unit": null
+      },
+      {
+        "name": "post_maneuver_slot_recovery",
+        "value": "2.6",
+        "unit": "days"
+      }
+    ],
+    "decision_steps": [
+      {
+        "stage": "Coordination",
+        "action": "Contact the secondary operator before committing to a CAM.",
+        "rationale": "Both objects are active and the secondary has more maneuver margin."
+      },
+      {
+        "stage": "Option Screening",
+        "action": "Reject CAM candidates that create secondary conjunctions.",
+        "rationale": "Post-maneuver ephemerides must be screened before upload."
+      },
+      {
+        "stage": "Constraint Check",
+        "action": "Reject the thermal-unsafe thrust vector and search alternatives.",
+        "rationale": "A maneuver that points star trackers near the sun is not operationally viable."
+      },
+      {
+        "stage": "Execution",
+        "action": "Commit only after safe option selection and final command-window review.",
+        "rationale": "The event is within the 24-hour go/no-go window."
+      },
+      {
+        "stage": "Recovery",
+        "action": "Request post-maneuver OD and rescreen achieved ephemeris.",
+        "rationale": "Delta-V execution error can introduce new hazards."
+      }
+    ],
+    "expert_prompts": [
+      "Who would maneuver in this active-active case, and how is that negotiated?",
+      "Would secondary conjunction screening block the proposed safe-looking CAM?",
+      "Which spacecraft constraints are checked before operators accept a burn plan?"
+    ],
+    "expected_posture": "Coordinate with the secondary operator, reject unsafe or secondary-risk CAMs, select the lowest-risk feasible option, and verify the achieved orbit."
+  }
+]
