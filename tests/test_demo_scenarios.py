@@ -74,3 +74,18 @@ def test_markdown_packet_contains_titles_prompts_and_hypotheses():
     assert "Active-Active CAM With Secondary Screening Constraints" in markdown
     assert "## Expert Correction Prompts" in markdown
     assert "**Hypotheses:** 1, 2, 5, 10, 16, 19" in markdown
+
+
+def test_generator_writes_json_and_markdown(tmp_path, monkeypatch):
+    from scripts import generate_demo_scenarios
+
+    monkeypatch.setattr(generate_demo_scenarios, "OUTPUT_DIR", tmp_path)
+
+    json_path, markdown_path = generate_demo_scenarios.main()
+
+    assert json_path == tmp_path / "t119b_argus_demo_scenarios.json"
+    assert markdown_path == tmp_path / "t119b_argus_demo_scenarios.md"
+    assert json_path.exists()
+    assert markdown_path.exists()
+    assert "high_pc_stale_data" in json_path.read_text(encoding="utf-8")
+    assert "Expert Correction Prompts" in markdown_path.read_text(encoding="utf-8")
