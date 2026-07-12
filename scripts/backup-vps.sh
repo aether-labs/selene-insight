@@ -60,5 +60,5 @@ else
 fi
 
 # Keep local DB backups bounded; R2 remains the durable backup store.
-RETENTION_DAYS="${ARGUS_LOCAL_BACKUP_RETENTION_DAYS:-30}"
+RETENTION_DAYS="${ARGUS_LOCAL_BACKUP_RETENTION_DAYS:-5}"
 find "$LOCAL_DIR" -maxdepth 1 -type f -name "starlink-*.db.gz" -mtime +"$RETENTION_DAYS" -print -delete | sed "s#^#[BACKUP] pruned local old db: #"
