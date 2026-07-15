@@ -28,7 +28,7 @@ LOGIN_URL = "https://www.space-track.org/ajaxauth/login"
 LOGOUT_URL = "https://www.space-track.org/ajaxauth/logout"
 STARLINK_QUERY = (
     "https://www.space-track.org/basicspacedata/query/class/gp"
-    "/OBJECT_NAME/~~STARLINK"
+    "/OBJECT_NAME/STARLINK~~"
     "/orderby/NORAD_CAT_ID%20asc/format/3le"
 )
 
